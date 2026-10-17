@@ -27,12 +27,33 @@ export function parseBotCommand(text: string): BotCommand {
     case "leave":
       return { type: "topic.leave" };
     case "history":
-      return !rest || rest === "on" || rest === "off"
+      // 群聊保留 on|off 开关；/history <数量> 归私聊的最近消息回放（派发时按聊天类型分流）。
+      return ["", "on", "off"].includes(rest)
         ? { type: "group.history", ...(rest ? { enabled: rest === "on" } : {}) }
-        : { type: "unknown", name, raw: text };
+        : { type: "history.list", value: rest };
+    case "历史":
+      return { type: "history.list", ...(rest ? { value: rest } : {}) };
+    case "queue":
+    case "队列": {
+      if (!rest || ["list", "列表", "查看"].includes(rest.toLowerCase())) {
+        return { type: "queue.list" };
+      }
+      const cancelMatch = /^(?:cancel|delete|del|remove|删除|取消)\s+(.+)$/iu.exec(rest);
+      const value = (cancelMatch?.[1] ?? rest).trim();
+      return { type: "queue.cancel", commandId: value, value };
+    }
+    case "usage":
+    case "用量":
+      return { type: "usage" };
+    case "diff":
+    case "改动":
+      return { type: "diff" };
+    case "result":
+    case "结果":
+      return { type: "result", ...(rest ? { value: rest } : {}) };
     case "queue-cancel":
       return rest
-        ? { type: "queue.cancel", commandId: rest }
+        ? { type: "queue.cancel", commandId: rest, value: rest }
         : { type: "unknown", name, raw: text };
     case "enable":
       return { type: "group.enable" };

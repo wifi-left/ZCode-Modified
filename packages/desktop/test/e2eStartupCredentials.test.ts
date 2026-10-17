@@ -9,18 +9,18 @@ const restoredOAuthCredentials = {
 };
 
 describe("desktop e2e startup credentials", () => {
-  it.each([
-    "coding-plan-upgrade-webview-refresh-provider.test.ts",
-    "marketing-touch-rewards.test.ts",
-  ])("%s 保留本地 Start 余额/请求鉴权所需 JWT", (spec) => {
-    expect(
-      createE2EStartupCredentialSeed({
-        specs: [spec],
-        legacyAuthToken: "fake-auth-token",
-        restoredOAuthCredentials,
-      }).zcodejwttoken,
-    ).toBe("fake-zcode-jwt");
-  });
+  it.each(["start-plan-manual-claim-experience.test.ts"])(
+    "%s 保留本地 Start 余额/请求鉴权所需 JWT",
+    (spec) => {
+      expect(
+        createE2EStartupCredentialSeed({
+          specs: [spec],
+          legacyAuthToken: "fake-auth-token",
+          restoredOAuthCredentials,
+        }).zcodejwttoken,
+      ).toBe("fake-zcode-jwt");
+    },
+  );
   it("供应商响应式 spec 保留本地 balance mock 所需的 JWT", () => {
     expect(
       createE2EStartupCredentialSeed({
@@ -109,7 +109,7 @@ describe("desktop e2e startup credentials", () => {
   it("Start Plan 手动领取 spec 保留调用 claim API 所需的 zcode JWT", () => {
     expect(
       createE2EStartupCredentialSeed({
-        specs: ["/repo/packages/desktop/test/e2e/ui-shell/marketing-touch-entitlement.test.ts"],
+        specs: ["/repo/packages/desktop/test/e2e/ui-shell/start-plan-manual-claim-experience.test.ts"],
         legacyAuthToken: "fake-auth-token",
         restoredOAuthCredentials,
       }),

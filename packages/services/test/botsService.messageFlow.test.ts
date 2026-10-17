@@ -95,8 +95,18 @@ describe("botsService messageFlow", () => {
           ),
         );
       } else {
-        await expect(submission).rejects.toThrow("原选择已保留");
-        expect(tasks.sendPrompt).not.toHaveBeenCalled();
+        // 新行为：Session 原选择解析失败时不再抛错（旧行为会随游标重试无限刷屏、
+        // 只能解绑重绑恢复），而是降级为不显式固定模型，仍不读 Bot 默认、不建草稿。
+        await submission;
+        await vi.waitFor(() =>
+          expect(tasks.sendPrompt).toHaveBeenCalledWith(
+            expect.objectContaining({
+              taskId: "task-1",
+              content: "next",
+              modelSelection: undefined,
+            }),
+          ),
+        );
         expect(tasks.setModel).not.toHaveBeenCalled();
       }
       expect(tasks.getTaskModelSelection).toHaveBeenCalledWith({ taskId: "task-1" });
@@ -4736,7 +4746,8 @@ describe("botsService messageFlow", () => {
       actor: weixinActor,
     });
 
-    for (const text of ["/task", "/workspace", "/model", "/think"]) {
+    // /task 例外：进行中任务列表必须可看（新功能），其余上下文/配置列表保持运行中拦截。
+    for (const text of ["/workspace", "/model", "/think"]) {
       const replies = await service.handleInboundMessage({
         botId: "weixin-1",
         text,
@@ -4745,6 +4756,23 @@ describe("botsService messageFlow", () => {
       expect(replies[0]?.text).toContain("当前任务正在运行");
       expect(replies[0]).not.toHaveProperty("selection");
     }
+    vi.mocked(legacyTaskService.listTasks).mockResolvedValue([
+      {
+        taskId: "task-1",
+        title: "Running task",
+        workspacePath: "/tmp/workspace",
+        workspaceIdentity: "ssh://host/tmp/workspace",
+        status: "running",
+      },
+    ]);
+    const taskReplies = await service.handleInboundMessage({
+      botId: "weixin-1",
+      text: "/task",
+      actor: weixinActor,
+    });
+    expect(taskReplies[0]?.text).toContain("运行中");
+    // 微信不支持结构化选择组件：列表以文本序号呈现，不含 selection 载荷。
+    expect(taskReplies[0]?.text).toContain("Running task");
     const modeReplies = await service.handleInboundMessage({
       botId: "weixin-1",
       text: "/mode",
@@ -5059,7 +5087,7 @@ describe("botsService messageFlow", () => {
     service.disposeAll();
   });
 
-  it("blocks task switching while the current task is running", async () => {
+  it("switches to another running-workspace task by selection number", async () => {
     const repo = f.createMemoryRepo(f.weixinConfig);
     const legacyTaskService = f.createLegacyTaskService();
     const service = f.createBotsService({
@@ -5105,9 +5133,10 @@ describe("botsService messageFlow", () => {
       actor: weixinActor,
     });
 
-    expect(replies[0]?.text).toContain("当前任务正在运行");
+    // 新行为：运行中也能切换到进行中任务列表里的其它任务（回状态而不是拒绝）。
+    expect(replies[0]?.text).toContain("Second task");
     expect((await repo.readState()).bots["weixin-1"]).toMatchObject({
-      activeTaskId: "task-1",
+      activeTaskId: "task-2",
       mode: "task",
     });
     service.disposeAll();
@@ -5429,10 +5458,11 @@ describe("botsService messageFlow", () => {
           actor: weixinActor,
         });
         if (incomplete) {
-          await expect(sending).rejects.toThrow("Submission 模型");
-          expect(taskService.createTask).not.toHaveBeenCalled();
-          expect((await repo.readState()).bots["weixin-1"]?.draftOptions?.modelSelection).toEqual(
-            original,
+          // 新行为：草稿里固定但已失效的选择不再抛错阻塞首条消息，
+          // 而是降级为不显式固定模型（也不套用 Bot 默认），交给 CLI admission。
+          await sending;
+          expect(taskService.createTask).toHaveBeenCalledWith(
+            expect.objectContaining({ modelSelection: undefined }),
           );
         } else {
           await sending;

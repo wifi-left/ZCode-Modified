@@ -155,12 +155,6 @@ vi.mock("@/settings/useAutomationTemplates.js", () => ({
 vi.mock("@/logger.js", () => ({
   logger: { debug: h.loggerDebug },
 }));
-vi.mock("@/settings/CodingPlanUpgradeDialogProvider.js", () => ({
-  useOptionalCodingPlanUpgradeDialog: () => ({
-    openCodingPlanUpgrade: h.openCodingPlanUpgrade,
-    inventory: h.inventory,
-  }),
-}));
 vi.mock("@/store/offPeakTaskStore.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/store/offPeakTaskStore.js")>();
   return {
@@ -224,21 +218,13 @@ afterEach(() => {
 
 describe("OffPeakNewTaskEntry", () => {
   it.each(["loading", "error"] as const)(
-    "purchase inventory %s does not enter purchase from the blocked template",
+    "blocked template %s 不进入草稿与导航",
     (status) => {
       h.inventory.status = status;
       const onOpenAutomations = clickStandupTemplate();
-      const options = h.toast.mock.calls[0]?.[1];
+      expect(h.toast).toHaveBeenCalled();
       expect(h.setPendingCreateDraft).not.toHaveBeenCalled();
       expect(onOpenAutomations).not.toHaveBeenCalled();
-      if (status === "loading") {
-        expect(options?.actionLabel).toBeUndefined();
-      } else {
-        expect(options?.actionLabel).toBe("purchase.entry.retry");
-        options?.onAction?.();
-        expect(h.inventory.retry).toHaveBeenCalledOnce();
-      }
-      expect(h.openCodingPlanUpgrade).not.toHaveBeenCalled();
     },
   );
 
@@ -401,46 +387,6 @@ describe("OffPeakNewTaskEntry", () => {
     expect(h.refreshCodingPlanSupport).toHaveBeenCalledTimes(2);
   });
 
-  it("非 Coding Plan 用户点击模板时直接弹升级 toast，并拦截草稿与导航", () => {
-    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("idle-funnel-home");
-    h.messages.current["settings.modelProvider.codingPlan.upgrade"] = "升级";
-    const onOpenAutomations = clickStandupTemplate();
-
-    expect(h.toast).toHaveBeenCalledWith("offPeak.create.codingPlanToast", {
-      durationMs: 8000,
-      position: "top-center",
-      variant: "info",
-      actionLabel: "升级",
-      onAction: expect.any(Function),
-      dismissible: true,
-      dismissLabel: "common.close",
-    });
-    expect(h.setPendingCreateDraft).not.toHaveBeenCalled();
-    expect(onOpenAutomations).not.toHaveBeenCalled();
-    expect(h.loggerDebug).toHaveBeenCalledWith(
-      "[off-peak] blocked home template without any Coding Plan",
-      { templateId: "standupGitSummary" },
-    );
-
-    const toastOptions = h.toast.mock.calls[0]?.[1];
-    toastOptions?.onAction?.();
-    expect(h.openCodingPlanUpgrade).toHaveBeenCalledWith({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      initialAudience: "personal",
-      funnelContext: {
-        purchaseFunnelId: "idle-funnel-home",
-        upgradeSource: "session_idle_time",
-        eventRegion: "app.session",
-        eventText: "升级",
-        entryPlanStatus: "no_plan",
-        entryPlanLevel: "",
-        entryPlanList: "",
-        purchaseAudience: "personal",
-        providerFamily: "zai",
-        channel: "Z_AI",
-      },
-    });
-  });
 
   it("Account Overlay 确认 Coding Plan 可用时放行闲时任务导航", () => {
     h.providerSettingsState.view = {
@@ -488,16 +434,6 @@ describe("OffPeakNewTaskEntry", () => {
     expect(onOpenAutomations).toHaveBeenCalledOnce();
   });
 
-  it("uses the visible English Upgrade copy as the idle-time event text", () => {
-    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("idle-funnel-en");
-    h.messages.current["settings.modelProvider.codingPlan.upgrade"] = "Upgrade";
-    clickStandupTemplate();
-
-    const toastOptions = h.toast.mock.calls[0]?.[1];
-    toastOptions?.onAction?.();
-
-    expect(h.openCodingPlanUpgrade.mock.calls[0]?.[0]?.funnelContext?.eventText).toBe("Upgrade");
-  });
 
   it.each([
     {

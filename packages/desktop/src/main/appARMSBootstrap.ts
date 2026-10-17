@@ -162,12 +162,14 @@ armsRum.client.useReporter = (reporter) => {
 };
 export const armsInitPromise = armsRum
   .init({
-    enable: ZCODE_ARMS_RUM_ENDPOINT !== "",
+    // 本仓库已整体关闭遥测：ARMS RUM 固定 enable=false，浏览器采集器与自定义事件
+    // 都不会上报；构建期注入的 ZCODE_ARMS_RUM_ENDPOINT 被忽略。
+    enable: false,
     version: ZCODE_VERSION,
     endpoint: ZCODE_ARMS_RUM_ENDPOINT,
     env: armsRumEnv,
-    // Browser SDK 由 SDK 在 dom-ready 经 executeJavaScript 注入；勿再在 preload/renderer 手动 init，避免重复采集
-    autoInject: true,
+    // 关闭遥测时不再向渲染进程注入 Browser SDK。
+    autoInject: false,
     browserCollectors: { ...ARMS_BROWSER_COLLECTORS },
     app: {
       name: runtimeApplicationName,

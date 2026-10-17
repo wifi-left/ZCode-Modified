@@ -5,9 +5,6 @@ import {
   TID_WORKSPACE_HELP_MENU_TRIGGER,
   TID_TASK_SETTINGS_BUTTON,
   TID_SETTINGS_PAGE,
-  PlatformChannels,
-  type UpdateStatePayload,
-  type UpdateCheckResultPayload,
 } from "@zcode/shared";
 import {
   DEFAULT_WORKSPACE,
@@ -38,19 +35,6 @@ async function enterWorkspace() {
   await waitForWorkspaceApp(DEFAULT_WORKSPACE, 30_000);
 }
 
-async function publishState(state: UpdateStatePayload) {
-  await browser.electron.execute(
-    (electron, channel, payload) => {
-      for (const window of electron.BrowserWindow.getAllWindows()) {
-        if (window.webContents.getURL().includes("/renderer/index.html")) {
-          window.webContents.send(channel, payload);
-        }
-      }
-    },
-    PlatformChannels.UpdateStateChanged,
-    state,
-  );
-}
 async function menuLabels() {
   return $$('[role="menuitem"]').map((item) => item.getText());
 }
@@ -167,7 +151,6 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
   });
   afterEach(async () => {
     if (await $('[role="menu"]').isDisplayed()) await closeMenu();
-    await publishState({ kind: "idle", enabled: true });
   });
   after(async () => {
     try {
@@ -189,7 +172,6 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
       "Request a feature",
       "Export logs",
       "Resource manager",
-      ...(production ? ["Check for updates"] : []),
       "About ZCode",
     ]);
     expect(await $$('[role="menu"] [role="separator"]')).toHaveLength(1);
@@ -198,88 +180,6 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
     await openMenu();
     await $('[role="menuitem"]*=About ZCode').click();
     await assertAboutWindow();
-  });
-
-  it("HM-02 更新状态事件、禁用状态与关闭重开", async function () {
-    this.timeout(60_000);
-    await openMenu();
-    if (!production) {
-      await publishState({ kind: "update-downloaded", enabled: true, version: "99.0.0" });
-      expect((await menuLabels()).some((label) => label.includes("Restart to update"))).toBe(false);
-      expect(await menuLabels()).not.toContain("Check for updates");
-      await closeMenu();
-      return;
-    }
-    for (const [state, label] of [
-      [{ kind: "checking", enabled: false }, "Checking for updates..."],
-      [{ kind: "update-available", enabled: true, version: "99.0.0" }, "Update available 99.0.0"],
-      [{ kind: "download-progress", enabled: true, progress: "42%" }, "Downloading update... 42%"],
-      [{ kind: "update-downloaded", enabled: true, version: "99.0.0" }, "Restart to update"],
-    ] as const) {
-      await publishState(state);
-      const item = $(`[role="menuitem"]*=${label}`);
-      await item.waitForDisplayed();
-      // 下载完成后动作文案与版本 pill 分开渲染，避免依赖 WebDriver 的子节点空白拼接。
-      if (state.kind === "update-downloaded") {
-        await expect(item.$('[data-slot="badge"]')).toHaveText(state.version);
-      }
-      if (!state.enabled) await expect(item).toHaveAttribute("aria-disabled", "true");
-      else expect(await item.getAttribute("aria-disabled")).not.toBe("true");
-    }
-    await closeMenu();
-    await openMenu();
-    const restartItem = $('[role="menuitem"]*=Restart to update');
-    await expect(restartItem).toBeDisplayed();
-    await expect(restartItem.$('[data-slot="badge"]')).toHaveText("99.0.0");
-    await closeMenu();
-    await publishState({ kind: "idle", enabled: true });
-  });
-
-  it("HM-03 production 真实检查命令收到开发包回执，Preview 无入口", async function () {
-    this.timeout(60_000);
-    await openMenu();
-    if (!production) {
-      expect(await menuLabels()).not.toContain("Check for updates");
-      await closeMenu();
-      return;
-    }
-    // 真实命令只在未打包的隔离 E2E 中执行，避免触发安装包的下载或安装。
-    expect(await browser.electron.execute((electron) => electron.app.isPackaged)).toBe(false);
-    await browser.execute(() => {
-      const target = window as unknown as {
-        zcode: {
-          onUpdateCheckResult(callback: (payload: UpdateCheckResultPayload) => void): () => void;
-        };
-        __helpUpdateResult?: UpdateCheckResultPayload;
-        __helpUpdateDispose?: () => void;
-      };
-      target.__helpUpdateResult = undefined;
-      target.__helpUpdateDispose = target.zcode.onUpdateCheckResult((payload) => {
-        target.__helpUpdateResult = payload;
-      });
-    });
-    try {
-      await $('[role="menuitem"]*=Check for updates').click();
-      await browser.waitUntil(
-        async () =>
-          (await browser.execute(
-            () =>
-              (window as unknown as { __helpUpdateResult?: UpdateCheckResultPayload })
-                .__helpUpdateResult?.kind,
-          )) === "dev-skipped",
-        { timeout: 10_000, timeoutMsg: "检查更新未收到真实 main 的开发包回执" },
-      );
-    } finally {
-      await browser.execute(() => {
-        const target = window as unknown as {
-          __helpUpdateDispose?: () => void;
-          __helpUpdateResult?: UpdateCheckResultPayload;
-        };
-        target.__helpUpdateDispose?.();
-        delete target.__helpUpdateDispose;
-        delete target.__helpUpdateResult;
-      });
-    }
   });
 
   it("HM-04 中文设置页的导出日志、关于及更新入口", async function () {
@@ -299,7 +199,6 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
       "给产品提需求",
       "导出日志",
       "资源管理器",
-      ...(production ? ["检查更新"] : []),
       "关于 ZCode",
     ]);
     expect(await $$('[role="menu"] [role="separator"]')).toHaveLength(1);

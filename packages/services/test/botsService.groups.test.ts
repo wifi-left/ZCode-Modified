@@ -533,14 +533,15 @@ describe("Feishu group sessions", () => {
     expect((await send("hello", "oc_a", "ou_member"))[0]?.mentionedUserIds).toEqual(["ou_user"]);
   });
 
-  it("mentions the administrator on model resolution failures without alerting for general failures", async () => {
+  it("submits group input without an explicit model when the model view is unavailable", async () => {
+    // 旧行为在这里抛“无法解析 Submission 模型”并 @ 管理员；新行为降级为不固定模型，
+    // 交给 CLI admission 使用会话选择，避免同一条消息被无限重试（微信端曾因此刷屏）。
     const { send, taskService } = setup(false, true);
     await send("/enable");
     const replies = await send("hello", "oc_a", "ou_member", "omt_model");
-    expect(replies[0]?.text).toContain("Submission");
-    expect(replies[0]?.mentionedUserIds).toEqual(["ou_user"]);
-    expect(taskService.submitBotGroupInput).not.toHaveBeenCalled();
-    expect((await send("retry", "oc_a", "ou_other", "omt_model"))[0]?.mentionedUserIds).toEqual([]);
+    expect(replies[0]?.text ?? "").not.toContain("Submission");
+    expect(replies[0]?.mentionedUserIds ?? []).toEqual([]);
+    expect(taskService.submitBotGroupInput).toHaveBeenCalled();
   });
 
   it.each([false, true])(

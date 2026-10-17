@@ -77,9 +77,8 @@ describe("ensureTelemetryDeviceMid", () => {
 
     expect(first).toBe(second);
     expect(JSON.parse(readFileSync(stateFile, "utf-8")).deviceMid).toBe(first);
-    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
-      device_mid?: string;
-    };
-    expect(body.device_mid).toBe(first);
+    // 遥测已硬关闭：上报不再发出任何网络请求，因此不存在携带 device_mid 的 body；
+    // 设备身份只保留在 telemetry-state.json 与 ZCode 来源头里。
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

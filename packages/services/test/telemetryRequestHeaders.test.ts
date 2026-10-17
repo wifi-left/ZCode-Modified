@@ -9,66 +9,8 @@ const homes: string[] = [];
 afterEach(async () => {
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
-const context = {
-  clientLanguage: "zh-CN",
-  clientTimezone: "Asia/Shanghai",
-  screenResolution: "100x100",
-};
-
-it("adds every public header and re-reads authorization on retry and logout", async () => {
-  const homeDir = await mkdtemp(join(tmpdir(), "telemetry-headers-"));
-  homes.push(homeDir);
-  let token: string | null = "Bearer first";
-  const loadAuthorization = vi.fn(async () => token);
-  const fetchImpl = vi
-    .fn<typeof fetch>()
-    .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    .mockResolvedValue(new Response(null, { status: 204 }));
-  const core = createTelemetryCore({
-    homeDir,
-    fetchImpl,
-    loadAuthorization,
-    loadUserId: async () => "user-1",
-    appVersion: "1.2.3",
-    platform: "darwin",
-    arch: "arm64",
-    osVersion: "24.0",
-    releaseChannel: "test",
-    randomUUID: () => "device-1",
-    resolveZCodeEndpointOrigin: () => "https://zcode.z.ai",
-    sleep: async () => {
-      token = "Bearer second";
-    },
-  });
-  await core.reportAppLaunch(context);
-  expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("error");
-  expect(fetchImpl.mock.calls[0]?.[1]?.headers).toEqual({
-    "Content-Type": "application/json",
-    "User-Agent": "ZCode/1.2.3",
-    "HTTP-Referer": "https://zcode.z.ai",
-    "X-Title": "Z Code@electron",
-    "X-ZCode-App-Version": "1.2.3",
-    "X-Platform": "darwin-arm64",
-    "X-Release-Channel": "test",
-    "X-Client-Language": "zh-CN",
-    "X-Client-Timezone": "Asia/Shanghai",
-    "X-Os-Category": "macos",
-    "X-Os-Version": "24.0",
-    "X-Device-Mid": "device-1",
-    Authorization: "Bearer first",
-  });
-  expect(new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).get("Authorization")).toBe(
-    "Bearer second",
-  );
-  expect(fetchImpl.mock.calls[1]?.[1]?.body).toBe(fetchImpl.mock.calls[0]?.[1]?.body);
-  token = null;
-  await core.reportAppLaunch(context);
-  expect(new Headers(fetchImpl.mock.calls[2]?.[1]?.headers).has("Authorization")).toBe(false);
-  expect(loadAuthorization).toHaveBeenCalledWith("user-1");
-  loadAuthorization.mockRejectedValueOnce(new Error("secret credential error"));
-  await core.reportAppLaunch(context);
-  expect(new Headers(fetchImpl.mock.calls[3]?.[1]?.headers).has("Authorization")).toBe(false);
-});
+// 遥测已硬关闭：上报不再发出请求，原先断言 request headers/retry/logout 的用例不再适用。
+// 这里保留真正有约束力的部分：JWT 授权加载器只读 zcodejwttoken、账号切换与失败即关闭。
 
 it.each(["zai", "bigmodel"])(
   "only reads JWT for active %s, never OAuth/API keys",

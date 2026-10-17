@@ -90,11 +90,8 @@ describe("desktop e2e process cleanup", () => {
     expect(mainSource).toMatch(
       /async function prepareAppQuit[\s\S]*?stopDesktopResourceTelemetry\(\{ flushPendingWindows: true \}\)/u,
     );
-    // 修复原因：更新安装现在复用唯一的 prepareAppQuit 屏障并显式选择严格预算；旧断言要求
-    // Windows 专项资源扫描再次等待 Remote Host，已经与“只执行一次 Host 屏障”的事实冲突。
-    expect(mainSource).toMatch(
-      /prepareAppQuit\("auto-update quitAndInstall", "update-install"\)[\s\S]*?prepareWindowsProcessesForUpdateInstall\(\)/u,
-    );
+    // Phase 2 已删除自动更新：更新安装不再经过 prepareAppQuit("auto-update quitAndInstall")，
+    // 该断言随之移除（Windows 应用退出仍由上面的唯一 Host 屏障覆盖）。
     expect(mainSource).toMatch(
       /async function prepareAppQuit[\s\S]*?selectAppShutdownPolicy[\s\S]*?if \(hasPreparedAppQuit\)[\s\S]*?if \(appQuitPreparationInFlight\)/u,
     );

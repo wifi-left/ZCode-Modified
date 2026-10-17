@@ -16,7 +16,6 @@ import {
   resolveUniquePluginListingByName,
   resolveLocalizedList,
   resolveLocalizedText,
-  selectFeaturedItems,
   sortMarketplaceSources,
   sortInstalledStripItems,
   sortPersonalMarketplaceGroups,
@@ -357,31 +356,6 @@ describe("pluginStoreListing", () => {
         orphaned: false,
       }),
     ).toBe(false);
-  });
-
-  it("selects featured items from public marketplaces in catalog order", () => {
-    const items = buildStoreItems({
-      marketplaces: [
-        makeMarketplace({ id: "zcode-plugins-official" }),
-        makeMarketplace({ id: "claude-plugins-official" }),
-      ],
-      marketplaceAvailabilityKnown: true,
-      availablePlugins: [
-        makeSummary({ id: "alpha@zcode-plugins-official" }),
-        makeSummary({ id: "beta@zcode-plugins-official" }),
-        makeSummary({ id: "gamma@claude-plugins-official" }),
-      ],
-      installedPlugins: [],
-      plugins: [],
-      restorableBuiltins: [],
-    });
-    const publicItems = items.filter((item) => item.marketplace === "zcode-plugins-official");
-    const featured = selectFeaturedItems(publicItems, [
-      makeMarketplace({ id: "zcode-plugins-official", featured: ["beta", "missing", "alpha"] }),
-      // 非公开市场的 featured 名单不参与。
-      makeMarketplace({ id: "claude-plugins-official", featured: ["gamma"] }),
-    ]);
-    expect(featured.map((item) => item.name)).toEqual(["beta", "alpha"]);
   });
 
   it("orders category groups identically across locales with a fixed product order", () => {

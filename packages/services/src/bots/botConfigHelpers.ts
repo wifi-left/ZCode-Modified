@@ -102,14 +102,25 @@ export function isUserCommandAllowed(
     | "reply"
     | "stop"
     | "message"
-    | "approve",
+    | "approve"
+    | "queue"
+    | "usage"
+    | "diff"
+    | "history"
+    | "result",
 ): boolean {
   if (
     requestedCommand === "help" ||
     requestedCommand === "message" ||
     requestedCommand === "approve" ||
     requestedCommand === "task" ||
-    requestedCommand === "stop"
+    requestedCommand === "stop" ||
+    // 新增只读检查命令沿用 /task、/stop 的“默认允许”语义，避免旧配置因缺少字段被禁用。
+    requestedCommand === "queue" ||
+    requestedCommand === "usage" ||
+    requestedCommand === "diff" ||
+    requestedCommand === "history" ||
+    requestedCommand === "result"
   ) {
     return true;
   }

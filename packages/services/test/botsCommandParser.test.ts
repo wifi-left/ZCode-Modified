@@ -58,6 +58,44 @@ describe("bots command parser", () => {
     expect(parseBotCommand("/deny req")).toEqual({ type: "deny", requestId: "req" });
   });
 
+  it("parses queue, usage, diff, history and result commands", () => {
+    expect(parseBotCommand("/queue")).toEqual({ type: "queue.list" });
+    expect(parseBotCommand("/队列")).toEqual({ type: "queue.list" });
+    expect(parseBotCommand("/队列 列表")).toEqual({ type: "queue.list" });
+    expect(parseBotCommand("/queue 2")).toEqual({
+      type: "queue.cancel",
+      commandId: "2",
+      value: "2",
+    });
+    expect(parseBotCommand("/queue delete 3")).toEqual({
+      type: "queue.cancel",
+      commandId: "3",
+      value: "3",
+    });
+    expect(parseBotCommand("/队列 删除 1")).toEqual({
+      type: "queue.cancel",
+      commandId: "1",
+      value: "1",
+    });
+    expect(parseBotCommand("/queue-cancel cmd-9")).toEqual({
+      type: "queue.cancel",
+      commandId: "cmd-9",
+      value: "cmd-9",
+    });
+    expect(parseBotCommand("/usage")).toEqual({ type: "usage" });
+    expect(parseBotCommand("/用量")).toEqual({ type: "usage" });
+    expect(parseBotCommand("/diff")).toEqual({ type: "diff" });
+    expect(parseBotCommand("/改动")).toEqual({ type: "diff" });
+    // /history 在群里仍是历史开关，数字参数走私聊的最近消息回放。
+    expect(parseBotCommand("/history")).toEqual({ type: "group.history" });
+    expect(parseBotCommand("/history on")).toEqual({ type: "group.history", enabled: true });
+    expect(parseBotCommand("/history 20")).toEqual({ type: "history.list", value: "20" });
+    expect(parseBotCommand("/历史 5")).toEqual({ type: "history.list", value: "5" });
+    expect(parseBotCommand("/result")).toEqual({ type: "result" });
+    expect(parseBotCommand("/result 2")).toEqual({ type: "result", value: "2" });
+    expect(parseBotCommand("/结果 2")).toEqual({ type: "result", value: "2" });
+  });
+
   it("treats normal text as a message and incomplete commands as unknown", () => {
     expect(parseBotCommand("hello")).toEqual({ type: "message", text: "hello" });
     expect(parseBotCommand("0")).toEqual({ type: "selection.cancel" });

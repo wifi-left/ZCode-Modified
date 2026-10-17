@@ -118,20 +118,25 @@ describe("Bot deleted active task recovery", () => {
     expect((await h.repo.readState()).bots[actor.botId]?.draftOptions).toBeUndefined();
   });
 
-  it("replacement without an available Selection View stays draft without a success notice or default bypass", async () => {
+  it("replacement without an available Selection View falls back to the session selection", async () => {
+    // 旧行为在 Selection View 不可用时抛“无法解析 Submission 模型”，导致远端/微信端
+    // 错误刷屏且只能重新绑定恢复。新行为：不显式固定模型，交给 CLI admission 用会话选择接手。
     const h = setup();
     h.modelSelectionService.getView.mockResolvedValue({
       revision: 2,
       providers: [],
       preferredSelection: undefined,
     });
-    await expect(h.service.handleInboundMessage(inbound)).rejects.toThrow("Submission");
-    expect(h.taskService.createTask).not.toHaveBeenCalled();
-    expect(h.taskService.sendPrompt).not.toHaveBeenCalled();
-    expect(h.requests).toHaveLength(0);
+    await h.service.handleInboundMessage(inbound);
+    expect(h.taskService.createTask).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ modelSelection: undefined }),
+    );
+    expect(h.taskService.sendPrompt).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ taskId: "task-1", modelSelection: undefined }),
+    );
     expect((await h.repo.readState()).bots[actor.botId]).toMatchObject({
-      mode: "draft",
-      activeTaskId: null,
+      mode: "task",
+      activeTaskId: "task-1",
     });
   });
 

@@ -1763,4 +1763,69 @@ function ConversationTurnGroupImpl({
   );
 }
 
-export const ConversationTurnGroup = memo(ConversationTurnGroupImpl);
+// ── 长上下文流式渲染的热路径边界 ──
+// 每次 delta 都会重建整个 renderUnits 数组（行的对象引用只有变更行会换），
+// 默认浅比较会让每一个可见 turn 在每个 token 上重渲染，并在重渲染里重算
+// assistantFileSummaryText/代码注释投影等 O(文本长度) 派生值。这里按内容比较
+// unit：未变化的 turn 直接跳过渲染；nowMs 只对运行中的 turn 生效（工时/到期流光）。
+const RENDER_EQUALITY_MAX_DEPTH = 6;
+
+function isConversationRowLike(value: object): boolean {
+  const row = value as { rowId?: unknown; turnId?: unknown; kind?: unknown };
+  return typeof row.rowId === "number" && typeof row.turnId === "string" && typeof row.kind === "string";
+}
+
+function renderValueEquals(left: unknown, right: unknown, depth: number): boolean {
+  if (Object.is(left, right)) return true;
+  if (depth >= RENDER_EQUALITY_MAX_DEPTH) return false;
+  if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+      if (!renderValueEquals(left[index], right[index], depth + 1)) return false;
+    }
+    return true;
+  }
+  // 行是不可变对象：不同引用即视为变化，避免深比较所有 row 字段（比重渲染更贵）。
+  if (isConversationRowLike(left) || isConversationRowLike(right)) return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  if (leftKeys.length !== Object.keys(rightRecord).length) return false;
+  for (const key of leftKeys) {
+    if (!Object.hasOwn(rightRecord, key)) return false;
+    if (!renderValueEquals(leftRecord[key], rightRecord[key], depth + 1)) return false;
+  }
+  return true;
+}
+
+export function areConversationTurnGroupPropsEqual(
+  previous: ConversationTurnGroupProps,
+  next: ConversationTurnGroupProps,
+): boolean {
+  if (
+    previous.apiRetry !== next.apiRetry ||
+    previous.context !== next.context ||
+    previous.onFork !== next.onFork ||
+    previous.onRetry !== next.onRetry ||
+    previous.onFeedbackChange !== next.onFeedbackChange ||
+    previous.onEdit !== next.onEdit ||
+    previous.shareSelection !== next.shareSelection
+  ) {
+    return false;
+  }
+  // 运行中的 turn 需要随时间推进“工作中 N 秒”与 Highspeed 到期边界；历史 turn 与时钟无关。
+  if (previous.nowMs !== next.nowMs && (previous.unit.isRunning || next.unit.isRunning)) {
+    return false;
+  }
+  return renderValueEquals(previous.unit, next.unit, 0);
+}
+
+export const ConversationTurnGroup = memo(
+  ConversationTurnGroupImpl,
+  areConversationTurnGroupPropsEqual,
+);

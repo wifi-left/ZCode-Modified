@@ -38,9 +38,6 @@ export function createWindow(options: {
     label: string,
     forceKillDelayMs?: number,
   ) => void;
-  syncAutoUpdaterStateToWindow: (win: BrowserWindow) => void;
-  syncReadyUpdateToWindow: (win: BrowserWindow) => void;
-  syncPostUpdateReleaseNotesToWindow: (win: BrowserWindow) => void;
   webRemoteControlManager: { disposeWindow(windowId: number): Promise<void> };
   disposeRemoteWorkspaceSessionsForWindow: (windowId: number, reason: string) => void;
   reattachRemoteWorkspaceSessionsForWindow: (win: BrowserWindow, reason: string) => void;
@@ -160,9 +157,6 @@ export function createWindow(options: {
         options.logger.info(
           `[createWindow] renderer reloaded, reattached to existing host (${label}), pid=${oldChild.pid}`,
         );
-        options.syncAutoUpdaterStateToWindow(win);
-        options.syncReadyUpdateToWindow(win);
-        options.syncPostUpdateReleaseNotesToWindow(win);
         options.reattachRemoteWorkspaceSessionsForWindow(win, `${label}:renderer-reload`);
         return;
       } catch (error) {
@@ -206,9 +200,6 @@ export function createWindow(options: {
       });
       options.windowHostProcessMap.set(wcId, child);
       options.onHostProcessReady?.(wcId);
-      options.syncAutoUpdaterStateToWindow(win);
-      options.syncReadyUpdateToWindow(win);
-      options.syncPostUpdateReleaseNotesToWindow(win);
       options.reattachRemoteWorkspaceSessionsForWindow(win, `${label}:renderer-ready`);
     };
 

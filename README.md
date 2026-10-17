@@ -20,6 +20,21 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
 - 2026-10-10：更新至 ZCode v3.15.1 版本。
 - 2026-9-23：更新至 ZCode v3.14.3 版本。
 
+## 本仓库的本地改造（相对上游 v3.15.1）
+
+本仓库在上游源码基础上做了以下离线化/自托管改造，全部只改源码，不影响正在运行的桌面版数据：
+
+- **遥测已硬关闭**：数仓事件上报端点固定为空（`packages/services/src/telemetry/telemetryCore.ts`），ARMS RUM 关闭（`enable: false`、`autoInject: false`），CLI OTLP 与桌面 TTFT/动作轨迹导出解析函数直接返回 `undefined`。**设备身份 `device_mid` 保留**（provider 请求头 `X-Device-Mid`、反馈与计费仍需要它），不产生任何上报请求。
+- **广告/推广已删除**：Marketing Touch 弹窗与横幅、Rewards 入口、Coding Plan 升级推广（弹窗/入口/漏斗遥测/计费折扣）、插件商店 Featured/Recommended 区块。
+- **自动更新已删除**：`electron-updater` 依赖、更新检查/下载/安装 IPC 与 UI、更新状态窗口、强制更新启动阻断、更新相关设置项与 i18n。
+- **Web/手机远程遥控已断开（Z.ai 中继）**：桌面端 feature gate 默认关闭（`packages/desktop/src/main/webRemoteControlFeatureGate.ts`），relay 地址默认回落到本机不可达端口（`packages/shared/src/zcodeEndpoint.ts`）。需要自托管时用 `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` 显式指定。**微信/Telegram/飞书 Bot 渠道不受影响**（它们直连各自平台，不依赖 Z.ai 中继）。
+- **微信 Bot 增强**（`packages/services/src/bots/`）：
+  - 运行中追加消息**自动入队**（不再直接拒绝），`/队列` 查看、`/队列 删除 <序号>` 删除。
+  - `/任务` 列出当前工作区任务并**标记运行中**，运行中也可直接切换。
+  - 新增 `/用量`（token 用量与状态）、`/改动`（未提交改动摘要，本地走 git、远端退回任务级计数）、`/历史 [数量]`（最近会话消息回放）、`/结果 [序号]`（重发最近助手产出）。
+  - **模型解析失败不再报错**：Host 侧模型清单为空/不可用时降级为“不显式固定模型”，交给 CLI admission 用会话选择接手，并由 300ms 后重试一次；确定性错误（配置/授权/能力类）只提醒一次并提交 provider 游标，不再每 ~5s 重试刷屏、不再需要解绑重绑恢复。
+  - `/status` 改用 CLI 权威运行态快照（`control.phase`）判断运行中，修正“正在工作却显示已完成”的滞后。
+
 ## 初始化
 
 准备 Git、Node.js **24.14.0** 和 pnpm **10.33.2**，版本以 [mise.toml](mise.toml) 为准。以下开发和打包命令均在仓库根目录执行。
@@ -209,6 +224,41 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 ```
 
 浏览器打开 `http://127.0.0.1:3030`，即可验证同一后端服务托管 Web 页面和 Agent 的完整链路。该端口需要空闲；如正在运行 `pnpm dev:web`，可改用其他 `--port`。
+
+### Windows 一键安装
+
+Windows 上可以用仓库自带脚本一键构建并安装 CLI（安装到独立的 `%USERPROFILE%\.zcode-local`，不触碰正在运行的桌面版与 `%USERPROFILE%\.zcode` 数据目录）：
+
+```powershell
+pnpm install:cli:win
+# 或双击 scripts\build-and-install-zcode.cmd
+# 已经构建过 dist/zcode 时跳过构建：
+powershell -ExecutionPolicy Bypass -File scripts\install-zcode-cli-windows.ps1 -SkipBuild
+```
+
+脚本会生成 `%USERPROFILE%\.zcode-local\bin\zcode.cmd` 启动器并把该目录追加到用户级 PATH；新开终端后可直接运行 `zcode`（TUI）或 `zcode --web`。
+
+### Windows 桌面版一键打包
+
+桌面版没有自动安装（避免覆盖正在运行的应用）。用仓库脚本构建并生成 NSIS 安装包，产物在 `packages\desktop\dist\ZCode-<version>-win-<arch>.exe`：
+
+```powershell
+pnpm build:desktop:win
+# 或双击 scripts\build-and-install-zcode-desktop.cmd
+
+# 已有构建产物时只打包：
+powershell -ExecutionPolicy Bypass -File scripts\build-zcode-desktop-windows.ps1 -SkipBuild
+# 已经打过包、只想安装（会先检测 ZCode 是否在运行）：
+powershell -ExecutionPolicy Bypass -File scripts\build-zcode-desktop-windows.ps1 -SkipBuild -SkipPackage -Install
+# 静默安装到指定目录（目录不能含空格）：
+powershell -ExecutionPolicy Bypass -File scripts\build-zcode-desktop-windows.ps1 -SkipBuild -SkipPackage -Install -Silent -InstallDir D:\ZCode
+```
+
+注意：
+
+- 脚本**不会结束或修改正在运行的 ZCode**；`-Install` 检测到 `ZCode` 进程时会拒绝执行，请先退出应用。
+- 桌面版与已安装版本共用 appId、`%APPDATA%\ZCode` 数据目录和单实例锁，不能同时运行两个版本。
+- 首次构建会准备 runtime assets（`prepare:runtime-assets`），耗时数分钟；未签名构建可能触发 SmartScreen 提示。
 
 ## 仓库结构
 

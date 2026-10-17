@@ -184,9 +184,6 @@ export interface ManualClaimPlanClaimResult {
   };
 }
 
-export interface ForceUpdateConfig {
-  minimalVersion: string;
-}
 
 /**
  * 闲时任务客户端配置：client/configs 只下发入口曝光开关；模型展示来自 Built-in

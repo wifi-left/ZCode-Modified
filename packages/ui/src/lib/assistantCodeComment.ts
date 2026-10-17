@@ -110,10 +110,27 @@ function replacementForComment(
   };
 }
 
+// 流式热路径的性能闸门：绝大多数正文没有任何 code-comment/file-citation 指令，
+// 而投影要跑多轮全量扫描（markdown code ranges + 指令抽取 + 前缀收尾）。先用一次
+// substring 检查快速返回，输入里完全没有候选时投影必然等于原文。
+const DIRECTIVE_MARKER_PATTERN = /code-comment|zcode-file-citation/u;
+// 尾部可能是尚未写完的指令前缀（流式只可能在末尾截断）：如 ":::code-com"。
+const PARTIAL_DIRECTIVE_TAIL_PATTERN = /:{1,3}[a-z0-9-]*$/u;
+
+function mayContainAssistantDirective(content: string): boolean {
+  return (
+    DIRECTIVE_MARKER_PATTERN.test(content) ||
+    PARTIAL_DIRECTIVE_TAIL_PATTERN.test(content.slice(-64))
+  );
+}
+
 export function projectAssistantCodeComments(
   content: string,
   options: { streaming: boolean },
 ): AssistantCodeCommentProjection {
+  if (!mayContainAssistantDirective(content)) {
+    return { comments: [], visibleText: content };
+  }
   const comments = extractAssistantCodeComments(content);
   const replacements = comments.map((comment) => replacementForComment(content, comment));
 

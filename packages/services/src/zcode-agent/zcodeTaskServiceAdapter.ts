@@ -1,5 +1,9 @@
 import { createBotTopicAdmission } from "#src/zcode-agent/botTopicAdmission.js";
 import {
+  BOT_RUNTIME_MESSAGE_LIMIT_DEFAULT,
+  buildBotTaskRuntimeSnapshot,
+} from "#src/zcode-agent/botTaskRuntimeSnapshot.js";
+import {
   readBotGroupRuntimeSnapshot,
   waitBotGroupExecutionEnd,
 } from "#src/zcode-agent/groupRuntimeSnapshot.js";
@@ -419,6 +423,7 @@ export function createZCodeTaskServiceAdapter(
       logReason?: string;
       modelSelection?: CommandPayloadMap["sendText"]["modelSelection"];
       modelExecution?: CommandPayloadMap["sendText"]["modelExecution"];
+      requestedDelivery?: CommandPayloadMap["sendText"]["requestedDelivery"];
     } & ZCodeBackgroundTurnAttribution,
   ): Promise<void> {
     const startedAt = Date.now();
@@ -482,7 +487,10 @@ export function createZCodeTaskServiceAdapter(
             type: "sendText",
             payload: {
               text: params.content,
-              heldQueueDisposition: "keepQueueAndSend",
+              // Bot 忙时入队：显式 requestedDelivery=queue 时才覆盖 keepQueueAndSend 默认。
+              ...(params.requestedDelivery
+                ? { requestedDelivery: params.requestedDelivery }
+                : { heldQueueDisposition: "keepQueueAndSend" as const }),
               ...(params.modelSelection ? { modelSelection: params.modelSelection } : {}),
               ...(params.modelExecution ? { modelExecution: params.modelExecution } : {}),
               ...turnAttributionOf(params),
@@ -2161,6 +2169,69 @@ export function createZCodeTaskServiceAdapter(
       if (snapshot.queue.items.length > 0) return "queued";
       return null;
     },
+    async readBotTaskRuntimeSnapshot(params) {
+      const target = getTaskTarget(params.taskId);
+      if (
+        params.workspacePath &&
+        taskKey(target) !== taskKey({ ...params, workspacePath: params.workspacePath })
+      )
+        throw new Error("Bot task workspace mismatch");
+      const workspace = {
+        workspacePath: params.workspacePath ?? target.workspacePath,
+        workspaceIdentity: params.workspaceIdentity ?? target.workspaceIdentity,
+        ...((params.remoteSessionId ?? target.remoteSessionId)
+          ? { remoteSessionId: params.remoteSessionId ?? target.remoteSessionId }
+          : {}),
+      };
+      const snapshot = await readBotGroupRuntimeSnapshot(botAgent(workspace), {
+        ...workspace,
+        sessionId: target.taskId,
+      });
+      return buildBotTaskRuntimeSnapshot(
+        snapshot,
+        params.messageLimit ?? BOT_RUNTIME_MESSAGE_LIMIT_DEFAULT,
+      );
+    },
+    async deleteBotQueuedInput(params) {
+      const target = getTaskTarget(params.taskId);
+      if (
+        params.workspacePath &&
+        taskKey(target) !== taskKey({ ...params, workspacePath: params.workspacePath })
+      )
+        throw new Error("Bot task workspace mismatch");
+      const workspace = {
+        workspacePath: params.workspacePath ?? target.workspacePath,
+        workspaceIdentity: params.workspaceIdentity ?? target.workspaceIdentity,
+        ...((params.remoteSessionId ?? target.remoteSessionId)
+          ? { remoteSessionId: params.remoteSessionId ?? target.remoteSessionId }
+          : {}),
+      };
+      const snapshot = await readBotGroupRuntimeSnapshot(botAgent(workspace), {
+        ...workspace,
+        sessionId: target.taskId,
+      });
+      const item = snapshot.queue.items.find((entry) => entry.queueItemId === params.queueItemId);
+      // 只允许删除仍处于排队态的项目：reserved/promoting 已经被 CLI 认领，删除会产生“已执行却被删”的错觉。
+      if (!item || item.dispatch.state !== "queued") throw new Error("Input is no longer queued");
+      const source = item.botGroupSource;
+      if (
+        source &&
+        (source.botId !== params.botId ||
+          source.chatId !== params.chatId ||
+          (params.actorId !== undefined && source.senderId !== params.actorId))
+      )
+        throw new Error("Queue cancellation is not authorized");
+      return botAgent(workspace).sendConversationCommandV4({
+        ...workspace,
+        envelope: createHostCommandEnvelope({
+          type: "deleteQueueItem",
+          sessionId: target.taskId,
+          commandId: params.commandId,
+          baseRevision: snapshot.revision,
+          payload: { queueItemId: item.queueItemId },
+        }),
+      });
+    },
     async cancelBotGroupInput(params) {
       const target = getTaskTarget(params.taskId);
       if (
@@ -2300,6 +2371,7 @@ export function createZCodeTaskServiceAdapter(
         clientMode: params.clientMode,
         modelSelection: params.modelSelection,
         modelExecution: params.modelExecution,
+        requestedDelivery: params.requestedDelivery,
       });
     },
 

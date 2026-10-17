@@ -1,5 +1,4 @@
 export const CODING_PLAN_TEAM_MOCK_BASE_URL_ENV = "ZCODE_CODING_PLAN_TEAM_MOCK_BASE_URL";
-export const CODING_PLAN_UPGRADE_MOCK_BASE_URL_ENV = "ZCODE_CODING_PLAN_UPGRADE_MOCK_BASE_URL";
 
 type MutableEnvironment = Record<string, string | undefined>;
 
@@ -75,28 +74,6 @@ export function clearCodingPlanTeamMockEnv(environment: MutableEnvironment, base
   ]);
   if (environment[CODING_PLAN_TEAM_MOCK_BASE_URL_ENV] === baseUrl) {
     delete environment[CODING_PLAN_TEAM_MOCK_BASE_URL_ENV];
-  }
-}
-
-export function applyCodingPlanUpgradeMockEnv(environment: MutableEnvironment, baseUrl: string) {
-  environment[CODING_PLAN_UPGRADE_MOCK_BASE_URL_ENV] = baseUrl;
-  for (const key of CODING_PLAN_COMMON_ENV_KEYS) {
-    environment[key] = baseUrl;
-  }
-  environment.BIGMODEL_TEST_API_BASE_URL = baseUrl;
-  environment.VITE_CODING_PLAN_WEBVIEW_ORIGIN = baseUrl;
-  environment.ZAI_BUSINESS_BASE_URL = baseUrl;
-}
-
-export function clearCodingPlanUpgradeMockEnv(environment: MutableEnvironment, baseUrl: string) {
-  clearOwnedEnvironmentValues(environment, baseUrl, [
-    ...CODING_PLAN_COMMON_ENV_KEYS,
-    "BIGMODEL_TEST_API_BASE_URL",
-    "VITE_CODING_PLAN_WEBVIEW_ORIGIN",
-    "ZAI_BUSINESS_BASE_URL",
-  ]);
-  if (environment[CODING_PLAN_UPGRADE_MOCK_BASE_URL_ENV] === baseUrl) {
-    delete environment[CODING_PLAN_UPGRADE_MOCK_BASE_URL_ENV];
   }
 }
 

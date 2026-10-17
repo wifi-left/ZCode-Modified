@@ -166,17 +166,6 @@ describe("WindowsCaptionMenuButton", () => {
     expect(html).not.toContain("titleBar.menu.help.toggleBulkSessionStressTest");
   });
 
-  it("Preview 隐藏更新入口，生产版继续保留", async () => {
-    const { shouldShowDesktopUpdateEntry } = await import("@/WindowsCaptionMenuButton.js");
-
-    // 更新入口跟随产品身份：生产后端的 Preview 同样隐藏。
-    expect(shouldShowDesktopUpdateEntry("preview")).toBe(false);
-    expect(shouldShowDesktopUpdateEntry("production")).toBe(true);
-
-    const html = await renderButton("header");
-    expect(html).not.toContain("titleBar.menu.help.checkForUpdates");
-  });
-
   it("includes help actions migrated from the shared question-mark menu", async () => {
     capturedWindowsCaptionMenu.openSubmit.mockClear();
     capturedWindowsCaptionMenu.openFeatureRequest.mockClear();

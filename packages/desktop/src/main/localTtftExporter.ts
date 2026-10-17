@@ -20,6 +20,9 @@ import {
 const MAX_QUEUE = 32;
 const EXPORT_TIMEOUT_MS = 3000;
 
+/** 与 CLI/数仓/ARMS 一致的全局遥测关闭开关。 */
+const TELEMETRY_DISABLED = true;
+
 /** 只接收已冻结的观测事实；Main 不参与 session/command 状态裁决。 */
 export function createLocalTtftExporter(options: {
   env: Record<string, string | undefined>;
@@ -28,13 +31,15 @@ export function createLocalTtftExporter(options: {
   logger: { warn(...args: unknown[]): void };
 }) {
   const exporter = createRendererActionTraceExporter(options.env);
-  const endpoint =
-    validHttpUrl(options.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT) ??
-    validHttpUrl(
-      options.env.OTEL_EXPORTER_OTLP_ENDPOINT
-        ? `${options.env.OTEL_EXPORTER_OTLP_ENDPOINT.replace(/\/$/, "")}/v1/metrics`
-        : undefined,
-    );
+  // 本仓库已整体关闭遥测：本地 TTFT 指标不上报（忽略 OTEL_EXPORTER_OTLP_*）。
+  const endpoint = TELEMETRY_DISABLED
+    ? undefined
+    : validHttpUrl(options.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT) ??
+      validHttpUrl(
+        options.env.OTEL_EXPORTER_OTLP_ENDPOINT
+          ? `${options.env.OTEL_EXPORTER_OTLP_ENDPOINT.replace(/\/$/, "")}/v1/metrics`
+          : undefined,
+      );
   const resource = resourceFromAttributes({
     "service.name": "zcode-local-ttft",
     "service.version": options.version,

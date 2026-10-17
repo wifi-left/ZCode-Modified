@@ -6,7 +6,6 @@ export interface E2EBeforeSessionSetupOptions {
   recordBeforeSession: (cid: string, specs: string[]) => void;
   resetHome: (specs: string[]) => Promise<void>;
   startCodingPlanTeamMockIfNeeded: (specs: string[]) => Promise<void>;
-  startCodingPlanUpgradeMockIfNeeded: (specs: string[]) => Promise<void>;
   startUpstreamHttpIfNeeded: (specs: string[]) => Promise<void>;
   startPluginCdnZipFixtureIfNeeded: (specs: string[]) => Promise<void>;
   startOffPeakMockIfNeeded: (specs: string[]) => Promise<void>;
@@ -23,7 +22,6 @@ export async function runE2EBeforeSessionSetup(options: E2EBeforeSessionSetupOpt
   // 每个 worker session 启动 Electron 前按自己的 spec 重置模式，保持 case 隔离。
   await options.configureCodingPlanTeamMockForSpecs(options.specs);
   await options.startUpstreamHttpIfNeeded(options.specs);
-  await options.startCodingPlanUpgradeMockIfNeeded(options.specs);
   await options.startPluginCdnZipFixtureIfNeeded(options.specs);
   await options.startOffPeakMockIfNeeded(options.specs);
   // 修复原因：HOME 删除、重建和 fixture seed 是 Electron session 启动的前置事务；

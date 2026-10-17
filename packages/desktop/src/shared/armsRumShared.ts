@@ -36,7 +36,8 @@ export function parseArmsViewName(url: string): string {
 /** Renderer Browser SDK init 配置（与主进程 endpoint/env/version 对齐） */
 export function buildArmsBrowserInitConfig(runtimeEnv: ZCodeRuntimeEnv) {
   return {
-    enable: ZCODE_ARMS_RUM_ENDPOINT !== "",
+    // 本仓库已整体关闭遥测：Browser SDK 与主进程一致固定 enable=false，不采集也不上报。
+    enable: false,
     version: ZCODE_VERSION,
     endpoint: ZCODE_ARMS_RUM_ENDPOINT,
     env: mapZCodeEnvToArmsRumEnv(runtimeEnv),

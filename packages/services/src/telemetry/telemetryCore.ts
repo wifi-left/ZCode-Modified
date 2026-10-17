@@ -3,7 +3,6 @@ import {
   createUuid,
   ZCODE_VERSION,
   ZCODE_ENV,
-  ZCODE_TELEMETRY_REPORT_ENDPOINT,
   buildZCodeSourceHeadersFromContext,
   rewriteZCodeEndpointUrl,
   sanitizeTelemetryEventDetail,
@@ -18,7 +17,10 @@ import { dirname, join } from "node:path";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 import { getAppConfigDir } from "../paths.js";
 
-const REPORT_ENDPOINT = ZCODE_TELEMETRY_REPORT_ENDPOINT;
+// 本仓库已整体关闭遥测：事件上报端点在源码层固定为空，sendReport 直接返回，
+// 不会发出任何网络请求（构建期注入的 ZCODE_TELEMETRY_REPORT_ENDPOINT 被忽略）。
+// 设备身份（device_mid）仍由本文件维护：provider 请求头 X-Device-Mid 依赖它。
+const REPORT_ENDPOINT = "";
 
 function sessionCreateEventId(userId: string, sessionId: string): string {
   const bytes = createHash("sha256")

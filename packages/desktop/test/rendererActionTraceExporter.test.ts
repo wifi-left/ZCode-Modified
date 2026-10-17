@@ -5,17 +5,18 @@ import {
 } from "../src/main/rendererActionTraceExporter.js";
 
 describe("renderer action trace exporter config", () => {
-  it("uses the traces endpoint directly and appends v1/traces to the common endpoint", () => {
+  it("resolves no endpoint because telemetry is hard-disabled", () => {
+    // 本仓库已关闭遥测：无论 OTEL env 怎么配，端点解析都必须返回 undefined（不发请求）。
     expect(
       resolveRendererActionTraceEndpoint({
         OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://arms.example/custom",
       }),
-    ).toBe("https://arms.example/custom");
+    ).toBeUndefined();
     expect(
       resolveRendererActionTraceEndpoint({
         OTEL_EXPORTER_OTLP_ENDPOINT: "https://arms.example/otlp/",
       }),
-    ).toBe("https://arms.example/otlp/v1/traces");
+    ).toBeUndefined();
   });
 
   it("rejects non-http endpoints and parses percent-encoded headers", () => {

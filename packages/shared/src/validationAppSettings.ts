@@ -65,23 +65,6 @@ const enabledBuiltinAgentCliProvidersSchema = z
   .transform(() => [...ZCODE_ENABLED_AGENT_PROVIDERS]);
 const providerFamilyDomainSchema = z.enum(["zai", "bigmodel"]);
 
-export const postUpdateReleaseNotesPayloadSchema = z.object({
-  version: nonEmptyStringSchema,
-  title: nonEmptyStringSchema,
-  markdown: nonEmptyStringSchema,
-  releaseDate: nonEmptyStringSchema.optional(),
-  releaseNotesByLocale: z
-    .partialRecord(
-      localeSchema,
-      z.object({ title: nonEmptyStringSchema, markdown: nonEmptyStringSchema }),
-    )
-    .optional(),
-});
-
-const skippedElectronUpdateVersionsSchema = z
-  .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
-  .default({});
-
 const remoteWorkspaceTargetSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ssh"),
@@ -515,10 +498,6 @@ const appSettingsObjectSchema = z.object({
   lastActiveTabIndex: z.number().int().nonnegative().default(0),
   lastActiveTaskByWorkspace: z.record(z.string(), z.string()).optional(),
   dataBaseDir: z.string().trim().min(1).optional(),
-  pendingPostUpdateReleaseNotes: postUpdateReleaseNotesPayloadSchema.optional(),
-  receivePreviewUpdates: z.boolean().default(false),
-  autoDownloadAndInstallUpdates: z.boolean().default(false),
-  skippedElectronUpdateVersions: skippedElectronUpdateVersionsSchema,
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   webRemoteControlExternalRelayDevice: webRemoteControlExternalRelayDeviceSchema.optional(),
   webRemoteControlLastEnabledContext: webRemoteControlLastEnabledContextSchema.optional(),
@@ -608,12 +587,6 @@ export const appSettingsPatchSchema = z.object({
   lastActiveTabIndex: z.number().int().nonnegative().optional(),
   lastActiveTaskByWorkspace: z.record(z.string(), z.string()).optional(),
   dataBaseDir: z.string().trim().min(1).optional(),
-  pendingPostUpdateReleaseNotes: postUpdateReleaseNotesPayloadSchema.optional(),
-  receivePreviewUpdates: z.boolean().optional(),
-  autoDownloadAndInstallUpdates: z.boolean().optional(),
-  skippedElectronUpdateVersions: z
-    .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
-    .optional(),
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   webRemoteControlExternalRelayDevice: webRemoteControlExternalRelayDeviceSchema.optional(),
   webRemoteControlLastEnabledContext: webRemoteControlLastEnabledContextSchema.optional(),

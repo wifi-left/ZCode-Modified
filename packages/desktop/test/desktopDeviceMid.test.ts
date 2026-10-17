@@ -113,8 +113,12 @@ describe("ensureDesktopDeviceMidSync", () => {
       screenResolution: "3024x1964",
     });
 
-    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
-    expect(body.device_mid).toBe("shared-device-uuid");
+    // 遥测已硬关闭：报表不再发出请求（因此不会有携带 device_mid 的 body），
+    // 但设备身份仍必须与 desktop 侧读到同一份 state 里的同一个值。
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(readFileSync(join(sharedDir, "telemetry-state.json"), "utf-8")).deviceMid,
+    ).toBe(generated);
   });
 
   it("JSON 损坏时视作缺失，生成新 UUID 不抛", () => {

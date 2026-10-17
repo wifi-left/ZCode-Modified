@@ -51,15 +51,9 @@ it("升级和奖励的网页关闭与窗口关闭分开，三种窗口操作走�
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-it("登录、升级、奖励均接入覆盖层窗控", async () => {
+it("登录页接入覆盖层窗控", async () => {
   const read = (file: string) => readFile(resolve(__dirname, "../src", file), "utf8");
   expect(await read("WelcomeScreen.tsx")).toContain("<DesktopOverlayWindowControls />");
-  for (const file of [
-    "rewards/RewardsWebview.tsx",
-    "settings/CodingPlanEmbeddedWebviewDialog.tsx",
-  ]) {
-    expect(await read(file)).toContain("<EmbeddedWebsiteHeader");
-  }
 });
 
 it("登录页原生拖拽层避开窗控，并先于 no-drag 按钮声明", async () => {

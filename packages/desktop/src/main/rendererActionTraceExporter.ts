@@ -3,7 +3,15 @@ import type { SpanExporter } from "@opentelemetry/sdk-trace-base";
 
 type EnvRecord = Record<string, string | undefined>;
 
+/** 与 CLI/数仓/ARMS 一致的全局遥测关闭开关。 */
+const TELEMETRY_DISABLED = true;
+
+/**
+ * 本仓库已整体关闭遥测：渲染进程 action trace 与本地 TTFT 指标一并禁用上报；
+ * 忽略 OTEL_EXPORTER_OTLP_* 环境变量（文件内保留端点解析以便将来恢复）。
+ */
 export function resolveRendererActionTraceEndpoint(env: EnvRecord): string | undefined {
+  if (TELEMETRY_DISABLED) return undefined;
   const traceEndpoint = validHttpUrl(env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT);
   if (traceEndpoint) return traceEndpoint;
   const commonEndpoint = validHttpUrl(env.OTEL_EXPORTER_OTLP_ENDPOINT);

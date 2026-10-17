@@ -23,11 +23,6 @@ vi.mock("../src/i18n/IntlProvider.js", () => ({
   }),
 }));
 
-vi.mock("../src/CodingPlanBillingDiscount.js", () => ({
-  CodingPlanBillingDiscountBadgePill: () => "billing-discount-badge",
-  CodingPlanBillingDiscountInfoDialog: () => "billing-discount-info",
-  useCodingPlanBillingDiscount: () => ({ active: false, loading: false }),
-}));
 
 vi.mock("@/components/ai-elements/context.js", async () => {
   const React = await import("react");

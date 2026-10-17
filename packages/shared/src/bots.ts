@@ -95,6 +95,49 @@ export interface BotAllowedCommands {
   reply: boolean;
 }
 
+export interface BotQueuedInputSummary {
+  queueItemId: string;
+  sourceCommandId: string;
+  text: string;
+  dispatchState: "queued" | "reserved" | "promoting";
+  queuePosition?: number;
+  admittedAt: number;
+}
+
+/**
+ * Bot 侧读取的 CLI 权威运行态快照（只读）。
+ *
+ * 用途：/status 的实时判定（不再被 task meta 的滞后状态误导）、/queue 列表与删除定位、
+ * /usage 用量、/history 与 /result 的最近消息、/diff 的轮级改动摘要。
+ */
+export interface BotTaskRuntimeSnapshot {
+  /** sessionControl.phase：running/prewarming 表示确实在工作。 */
+  phase: string;
+  stopState: string;
+  queueAutoDrain: boolean;
+  queueItems: BotQueuedInputSummary[];
+  pendingInteractionCount: number;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+  };
+  /** 最近对话文本（用户输入/助手正文），旧→新。 */
+  recentMessages?: Array<{
+    role: "user" | "assistant";
+    text: string;
+    /** epoch 毫秒 */
+    at: number;
+  }>;
+  /** 最近一轮的文件改动摘要（turn 级计数）。 */
+  fileChanges?: {
+    files: number;
+    additions: number;
+    deletions: number;
+  };
+}
+
 export type BotCommandPolicy = BotAllowedCommands;
 
 export interface BotCurrentOptions {
@@ -505,7 +548,12 @@ export interface BotInboundAttachment {
 
 export type BotCommand =
   | { type: "group.history"; enabled?: boolean }
-  | { type: "queue.cancel"; commandId: string }
+  | { type: "queue.list" }
+  | { type: "queue.cancel"; commandId?: string; value?: string }
+  | { type: "usage" }
+  | { type: "diff" }
+  | { type: "history.list"; value?: string }
+  | { type: "result"; value?: string }
   | { type: "group.enable" }
   | { type: "group.disable" }
   | { type: "bind"; code: string }

@@ -55,7 +55,6 @@ export {
   appSettingsPatchSchema,
   appSettingsSchema,
   localeSchema,
-  postUpdateReleaseNotesPayloadSchema,
 } from "./validationAppSettings.js";
 export { isValidWslUser, WSL_USER_MAX_LENGTH, wslUserSchema } from "./wslUserValidation.js";
 export { zcodeTaskModeSchema } from "./zcode-task-mode-schema.js";

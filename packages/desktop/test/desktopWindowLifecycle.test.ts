@@ -69,9 +69,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       windowHostProcessMap: new Map(),
       spawnHostProcess,
       disposeHostProcess: vi.fn(),
-      syncAutoUpdaterStateToWindow: vi.fn(),
-      syncReadyUpdateToWindow: vi.fn(),
-      syncPostUpdateReleaseNotesToWindow: vi.fn(),
       webRemoteControlManager: { disposeWindow: vi.fn(async () => undefined) },
       disposeRemoteWorkspaceSessionsForWindow: vi.fn(),
       reattachRemoteWorkspaceSessionsForWindow: vi.fn(),
@@ -135,9 +132,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       windowHostProcessMap: new Map(),
       spawnHostProcess,
       disposeHostProcess: vi.fn(),
-      syncAutoUpdaterStateToWindow: vi.fn(),
-      syncReadyUpdateToWindow: vi.fn(),
-      syncPostUpdateReleaseNotesToWindow: vi.fn(),
       webRemoteControlManager: { disposeWindow: vi.fn(async () => undefined) },
       disposeRemoteWorkspaceSessionsForWindow: vi.fn(),
       reattachRemoteWorkspaceSessionsForWindow: vi.fn(),
@@ -186,7 +180,6 @@ describe("desktopWindowLifecycle createWindow", () => {
     vi.mocked(createBrowserWindow).mockReturnValue(win as never);
     const existingChild = { pid: 1236, postMessage: vi.fn() };
     const spawnHostProcess = vi.fn();
-    const syncAutoUpdaterStateToWindow = vi.fn();
     const reattachRemoteWorkspaceSessionsForWindow = vi.fn();
 
     createWindow({
@@ -197,9 +190,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       windowHostProcessMap: new Map([[44, existingChild as never]]),
       spawnHostProcess,
       disposeHostProcess: vi.fn(),
-      syncAutoUpdaterStateToWindow,
-      syncReadyUpdateToWindow: vi.fn(),
-      syncPostUpdateReleaseNotesToWindow: vi.fn(),
       webRemoteControlManager: { disposeWindow: vi.fn(async () => undefined) },
       disposeRemoteWorkspaceSessionsForWindow: vi.fn(),
       reattachRemoteWorkspaceSessionsForWindow,
@@ -221,7 +211,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       [expect.objectContaining({ id: "port-1" })],
     );
     expect(spawnHostProcess).not.toHaveBeenCalled();
-    expect(syncAutoUpdaterStateToWindow).toHaveBeenCalledWith(win);
     expect(reattachRemoteWorkspaceSessionsForWindow).toHaveBeenCalledWith(
       win,
       "local-44:renderer-reload",
@@ -261,9 +250,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       windowHostProcessMap: new Map(),
       spawnHostProcess,
       disposeHostProcess: vi.fn(),
-      syncAutoUpdaterStateToWindow: vi.fn(),
-      syncReadyUpdateToWindow: vi.fn(),
-      syncPostUpdateReleaseNotesToWindow: vi.fn(),
       webRemoteControlManager: { disposeWindow: vi.fn(async () => undefined) },
       disposeRemoteWorkspaceSessionsForWindow: vi.fn(),
       reattachRemoteWorkspaceSessionsForWindow: vi.fn(),
@@ -319,9 +305,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       windowHostProcessMap: new Map(),
       spawnHostProcess,
       disposeHostProcess: vi.fn(),
-      syncAutoUpdaterStateToWindow: vi.fn(),
-      syncReadyUpdateToWindow: vi.fn(),
-      syncPostUpdateReleaseNotesToWindow: vi.fn(),
       webRemoteControlManager: { disposeWindow: vi.fn(async () => undefined) },
       disposeRemoteWorkspaceSessionsForWindow: vi.fn(),
       reattachRemoteWorkspaceSessionsForWindow: vi.fn(),
@@ -378,9 +361,6 @@ describe("desktopWindowLifecycle createWindow", () => {
       windowHostProcessMap: new Map(),
       spawnHostProcess,
       disposeHostProcess: vi.fn(),
-      syncAutoUpdaterStateToWindow: vi.fn(),
-      syncReadyUpdateToWindow: vi.fn(),
-      syncPostUpdateReleaseNotesToWindow: vi.fn(),
       webRemoteControlManager: { disposeWindow: vi.fn(async () => undefined) },
       disposeRemoteWorkspaceSessionsForWindow: vi.fn(),
       reattachRemoteWorkspaceSessionsForWindow: vi.fn(),

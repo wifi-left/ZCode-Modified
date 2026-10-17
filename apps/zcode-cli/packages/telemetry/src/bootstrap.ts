@@ -72,7 +72,14 @@ export interface PrepareModelTelemetryOptions {
   runtimeSurface?: ModelApiRuntimeSurface;
 }
 
+/**
+ * 本仓库已整体关闭遥测：OTLP 上报永久禁用（忽略 OTEL_EXPORTER_OTLP_* 与打包注入的端点）。
+ * 关闭后 prepareModelTelemetryEnv 不会加载 OTel SDK/Exporter，模型与 Agent 行为不变。
+ */
+const TELEMETRY_DISABLED = true;
+
 export function resolveOtlpTraceEndpoint(env: EnvRecord): string | undefined {
+  if (TELEMETRY_DISABLED) return undefined;
   const traceEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim();
   if (traceEndpoint) return validHttpUrl(traceEndpoint);
   const commonEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
@@ -85,6 +92,7 @@ export function resolveOtlpTraceEndpoint(env: EnvRecord): string | undefined {
 }
 
 export function resolveOtlpMetricEndpoint(env: EnvRecord): string | undefined {
+  if (TELEMETRY_DISABLED) return undefined;
   const metricEndpoint = env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim();
   if (metricEndpoint) return validHttpUrl(metricEndpoint);
   const commonEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();

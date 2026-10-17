@@ -149,12 +149,13 @@ describe("zcodeEndpoint", () => {
     ).toBe("https://zcode.z.ai/api/v1/zcode-plan/anthropic");
   });
 
-  it("uses the test relay only for the standard test endpoint", () => {
+  it("keeps the web remote control relay non-routable for every endpoint", () => {
+    // 本仓库已断开 Web 远程遥控：任何 endpoint（含旧 test origin）都不再指向 Z.ai 中继。
     expect(
       resolveWebRemoteControlRelayWsUrl({
         endpointOrigin: TEST_ZCODE_ENDPOINT_ORIGIN,
       }),
-    ).toBe("wss://zcode.z.ai/ws");
+    ).toBe(DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL);
     expect(
       resolveWebRemoteControlRelayWsUrl({
         endpointOrigin: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
@@ -165,6 +166,7 @@ describe("zcodeEndpoint", () => {
         endpointOrigin: "http://localhost:3030",
       }),
     ).toBe(DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL);
+    expect(DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL).toBe("ws://127.0.0.1:9/ws");
   });
 
   it("allows an explicit web remote control relay url override", () => {

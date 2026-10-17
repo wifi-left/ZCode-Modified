@@ -48,14 +48,8 @@ export function createE2EStartupCredentialSeed(
   const requiresZCodeJwt = options.specs?.some((spec) => {
     const fileName = spec.replaceAll("\\", "/").split("/").at(-1);
     return (
-      // 营销投放 spec 按主题拆成 marketing-touch-delivery*.test.ts，领取用例都需要本地 JWT。
-      fileName?.startsWith("marketing-touch-delivery") ||
-      fileName === "marketing-touch-entitlement.test.ts" ||
-      // Rewards 专项走本地控制面，需要同时验证 OAuth 与 JWT 注入。
-      fileName === "marketing-touch-rewards.test.ts" ||
       fileName === "jwt-401-auto-logout.test.ts" ||
       isRequestSecuritySpec(fileName) ||
-      fileName === "coding-plan-upgrade-webview-refresh-provider.test.ts" ||
       fileName === "start-plan-manual-claim-experience.test.ts" ||
       fileName === "provider-family-responsive.test.ts"
     );

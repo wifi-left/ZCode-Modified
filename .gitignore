@@ -73,3 +73,13 @@ packages/desktop/resources/macos-window-bounds/
 __pycache__/
 *.pyc
 .zcode-runtime
+
+# 本地会话/计划等私有工作产物（可能包含本机路径与环境细节），不入库。
+.zcode/
+# 本地构建与排障日志。
+*.log
+# 单独跑 desktop 子 tsconfig 时 tsc 会把这一个共享模块就地 emit；构建产物不入库。
+packages/desktop/src/shared/armsRumShared.js
+packages/desktop/src/shared/armsRumShared.js.map
+packages/desktop/src/shared/armsRumShared.d.ts
+packages/desktop/src/shared/armsRumShared.d.ts.map

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadEndpointEnv } from "./load-endpoint-env.mjs";
 import { spawnSync } from "node:child_process";
+import { packSourceAsDeterministicTarGzip } from "./deterministic-tar-archive.mjs";
 import { createHash } from "node:crypto";
 import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -100,9 +101,12 @@ function commandText(command, args) {
 
 function run(command, args, options = {}) {
   console.log(`[zcode] ${commandText(command, args)}`);
-  const result = spawnSync(command, args, {
+  // Windows 上 pnpm 是 pnpm.cmd，spawnSync 不带 shell 会直接 ENOENT。
+  const useShell = process.platform === "win32" && command === "pnpm";
+  const result = spawnSync(useShell ? `${command}.cmd` : command, args, {
     cwd: root,
     stdio: "inherit",
+    shell: useShell,
     ...options,
   });
   if (result.error) {
@@ -226,7 +230,11 @@ async function createTarball({ packageParent, releaseDir, tarballName }) {
   await rm(tarball, {
     force: true,
   });
-  run("tar", ["-czf", tarball, "-C", packageParent, packageDirName]);
+  // 不用系统 tar：Windows 上 `tar -czf F:\...` 会把盘符当成 rsh 主机（Cannot connect to F:）。
+  // 复用仓库内的确定性打包器，跨平台产物字节稳定（与 prepare-prebuilds 同一实现）。
+  // 打包 .work 目录（其中只有 zcode/ 一个子目录），保证归档内顶层条目为 `zcode/`，
+  // 与 POSIX install.sh 的 `mv $TARGET.new/zcode $TARGET` 约定一致。
+  packSourceAsDeterministicTarGzip(packageParent, tarball);
   return tarball;
 }
 

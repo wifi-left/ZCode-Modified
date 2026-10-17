@@ -473,7 +473,7 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
     expect(logoutIndex).toBeGreaterThan(separatorBeforeAuthIndex);
   });
 
-  it("keeps the always-visible upgrade entry inside the footer summary", () => {
+  it("keeps usage stats inside the footer summary", () => {
     const footerSource = readFileSync(
       resolve(process.cwd(), "packages/ui/src/WorkspaceSidebarFooter.tsx"),
       "utf8",
@@ -490,15 +490,11 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
       "<DropdownMenuSeparator />",
     );
     expect(summarySource).toContain("<DropdownMenuSeparator />");
-    expect(summarySource.indexOf("sidebar.usage.plan.openStats")).toBeLessThan(
-      summarySource.indexOf("onUpgradeClick?.("),
-    );
+    // Phase 1 已移除 Coding Plan 升级入口，这里只锁定量入口与分隔线仍在 summary 内。
+    expect(summarySource).toContain("sidebar.usage.plan.openStats");
     expect(summarySource).toContain("setPendingSettingsUsageIntent();");
     expect(summarySource).toContain("onUsageClick?.();");
-    expect(summarySource).toContain("upgradeTargetProviderId");
-    expect(summarySource).toContain("onUpgradeClick?.(");
-    expect(summarySource).not.toContain("if (!upgradeProviderId");
-    expect(summarySource).not.toContain("if (!upgradeTargetProviderId");
+    expect(summarySource).not.toContain("onUpgradeClick?.(");
     expect(summarySource).toContain("<DropdownMenuSeparator />");
     expect(summarySource).not.toContain("<CodingPlanUsageRemainingPanel");
   });

@@ -4,8 +4,6 @@ import {
   buildSessionQuotaBannerDismissKey,
   buildSessionQuotaBannerState,
   normalizeProviderLimitedBannerMessage,
-  resolveQuotaBannerUpgradeProviderId,
-  shouldOfferQuotaBannerUpgrade,
 } from "@/v4/sessionQuotaBannerState.js";
 import { resolveMcpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
@@ -119,15 +117,7 @@ describe("V4 session quota banner state", () => {
     expect(planState.kind).toBe("mcp-plan-required");
   });
 
-  it("今日额度用完不给升级入口，权益缺失才给", () => {
-    // 额度用完只能等自然日重置，升级按钮会让用户以为花钱就能立刻继续。
-    expect(shouldOfferQuotaBannerUpgrade("mcp-quota-exhausted")).toBe(false);
-    expect(shouldOfferQuotaBannerUpgrade("mcp-plan-required")).toBe(true);
-    // 既有 kind 的升级入口不受影响。
-    expect(shouldOfferQuotaBannerUpgrade("daily-exhausted")).toBe(true);
-    expect(shouldOfferQuotaBannerUpgrade("provider-limited")).toBe(true);
-    expect(shouldOfferQuotaBannerUpgrade(null)).toBe(true);
-  });
+  // Phase 1 已移除 Coding Plan 升级入口（shouldOfferQuotaBannerUpgrade 随之删除）。
 
   it("模型额度问题优先于 MCP 提示", () => {
     // 模型额度直接影响对话本身，不能被 MCP 提示挡住。
@@ -239,12 +229,9 @@ describe("V4 session quota banner state", () => {
     ).toMatchObject({ rowId: 1, toolName: "search_image" });
   });
 
-  it("清洗 GLM bracket 文案并保留当前 Provider 身份", () => {
+  it("清洗 GLM bracket 文案", () => {
     expect(
       normalizeProviderLimitedBannerMessage("[1113][余额不足或无可用资源包,请充值。][request-id]"),
     ).toBe("余额不足或无可用资源包,请充值。");
-    expect(
-      resolveQuotaBannerUpgradeProviderId(BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan),
-    ).toBe(BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan);
   });
 });

@@ -304,6 +304,33 @@ export interface IZCodeTaskService {
     source: import("@zcode/shared").BotGroupInputSource;
   }): Promise<import("@zcode/shared/zcode-protocol-v4").CommandAck>;
 
+  /**
+   * 读取 CLI 权威运行态快照（只读，不建立第二份队列）：
+   * 供 Bot 的 /status 实时判定、/queue 列表、/usage、/history、/result、/diff 使用。
+   */
+  readBotTaskRuntimeSnapshot?(params: {
+    taskId: string;
+    remoteSessionId?: string;
+    workspacePath?: string;
+    workspaceIdentity?: string;
+    /** 最近消息回放条数上限（默认 20）。 */
+    messageLimit?: number;
+  }): Promise<import("@zcode/shared").BotTaskRuntimeSnapshot>;
+
+  /** 删除一条排队输入（/队列 删除 <序号>）；仅 queued 状态可删。 */
+  deleteBotQueuedInput?(params: {
+    workspacePath?: string;
+    workspaceIdentity?: string;
+    taskId: string;
+    remoteSessionId?: string;
+    commandId: string;
+    queueItemId: string;
+    /** 归属校验信息；带 botGroupSource 的队列项必须匹配 botId/chatId。 */
+    botId?: string;
+    chatId?: string;
+    actorId?: string;
+  }): Promise<import("@zcode/shared/zcode-protocol-v4").CommandAck>;
+
   /** 发送 prompt 到指定 task */
   sendPrompt(
     params: {
@@ -325,6 +352,11 @@ export interface IZCodeTaskService {
       modelSelection?: CommandPayloadMap["sendText"]["modelSelection"];
       /** 单次执行约束与动态鉴权；仅 idle start-now 接受，不进入普通队列。 */
       modelExecution?: CommandPayloadMap["sendText"]["modelExecution"];
+      /**
+       * 本次输入的投递方式：queue = 显式入队（Bot 忙时自动入队），
+       * startNow/guide 对齐 v4 sendText 语义；缺省沿用 CLI admission 裁决。
+       */
+      requestedDelivery?: CommandPayloadMap["sendText"]["requestedDelivery"];
     } & ZCodeBackgroundTurnAttribution,
   ): Promise<void>;
 

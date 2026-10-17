@@ -66,7 +66,10 @@ export function readTaskWorkedDurationMs(snapshot: ZCodeSessionFile | null, task
     // Bugfix: 第三方 /status 之前把运行时长塞进 Task 行；这里按 UI 的已工作时长语义单独输出 Worked。
     return Math.max(Date.now() - startedAt, 0);
   }
-  const completedDurationMs = snapshot?.messages.findLast((message) => message.role === "assistant")?.durationMs;
+  // 防御：部分 runtime/旧快照只带 meta 不带 messages，不能让 /status 直接抛错。
+  const completedDurationMs = (snapshot?.messages ?? []).findLast(
+    (message) => message.role === "assistant",
+  )?.durationMs;
   if (completedDurationMs !== undefined) {
     return completedDurationMs;
   }

@@ -81,7 +81,10 @@ import {
   type BotsConfigFile,
   type Locale,
   type SelectionPrompt,
+  type BotQueuedInputSummary,
+  type BotTaskRuntimeSnapshot,
 } from "@zcode/shared";
+import type { IGitService } from "#src/git/git.js";
 import type { IZCodeTaskService } from "../session/zcodeTaskService.js";
 import { resolveProviderModeIdFromConfigOptions } from "#src/session/sessionModeOptions.js";
 import { deriveSessionTitle as deriveTaskTitle } from "#src/session/sessionTitle.js";
@@ -307,6 +310,8 @@ interface BotsServiceDeps {
   settingService?: ISettingService;
   modelSelectionService: Pick<IModelSelectionService, "getView">;
   remoteWorkspaceService?: BotRemoteWorkspaceService;
+  /** 本地工作区的 /改动 摘要；远端工作区退回任务级计数。 */
+  gitService?: Pick<IGitService, "getChanges">;
   repo?: BotsRepo;
   // 修复原因：desktop-attached 远端启动阶段不应抢跑 bot 轮询、runtime lock 和模型候选缓存；
   // 这些后台任务属于本地桌面 host，不属于 SSH/Docker 远端首屏连接路径。
@@ -357,7 +362,12 @@ type BotAuthorizedCommand =
   | "reply"
   | "stop"
   | "message"
-  | "approve";
+  | "approve"
+  | "queue"
+  | "usage"
+  | "diff"
+  | "history"
+  | "result";
 
 interface BindCodeRecord {
   botId: string;
@@ -734,6 +744,7 @@ const BOT_ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 30_000;
 const REMOTE_RECONNECT_DEDUPE_TTL_MS = 3_000;
 const REMOTE_RECONNECT_DELIVERY_DEDUPE_TTL_MS = 2 * 60_000;
 const BOT_INBOUND_DELIVERY_DEDUPE_TTL_MS = 2 * 60_000;
+const BOT_MODEL_SELECTION_RETRY_DELAY_MS = 300;
 const BOT_AUTOMATION_DELIVERY_WARNING_TTL_MS = 5 * 60_000;
 const BOT_ELICITATION_CUSTOM_OPTION_ID = "__custom__";
 const BOT_ELICITATION_SUBMIT_OPTION_ID = "__submit__";
@@ -1888,6 +1899,21 @@ export function createBotsService(
     return error instanceof Error ? error.message : String(error);
   }
 
+  /**
+   * 确定性错误 = 重试同一条消息也不会成功的用户/配置/运行时能力问题。
+   * 这类错误必须只提醒一次并提交 provider 游标，否则同一条消息会被无限重试并刷屏。
+   */
+  function isDeterministicBotFailure(error: unknown): boolean {
+    if (error instanceof BotAdminRequiredError) return true;
+    if (error instanceof TopicHistoryPermissionError) return true;
+    // Session not found 保持“可重试”：CLI 冷启动期会话索引可能尚未加载完成，
+    // 旧语义会重试同一批消息，这里不改变该行为（用户提示仍引导 /new）。
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    return /Runtime cannot|is not authorized|Queue cancellation is not authorized|Unsupported (action|bot)|command is not allowed/i.test(
+      message,
+    );
+  }
+
   function sanitizeAttachmentFilename(filename: string): string {
     const normalized = Array.from(filename.trim())
       .map((char) => (char.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(char) ? "_" : char))
@@ -2103,7 +2129,13 @@ export function createBotsService(
       requestedCommand !== "status" &&
       requestedCommand !== "workspace" &&
       requestedCommand !== "reconnect" &&
-      requestedCommand !== "reply"
+      requestedCommand !== "reply" &&
+      // 只读检查类命令：断连时也要能拿到本地快照/给出准确提示，不为了查询创建远端 runtime。
+      requestedCommand !== "queue" &&
+      requestedCommand !== "usage" &&
+      requestedCommand !== "diff" &&
+      requestedCommand !== "history" &&
+      requestedCommand !== "result"
     );
   }
 
@@ -3906,14 +3938,22 @@ export function createBotsService(
           outbound = await service.handleInboundMessage(inboundMessage);
         }
       } catch (error) {
-        releaseInboundDelivery(inboundMessage);
-        hadBusinessFailure = true;
-        inboundBusinessFailure = true;
+        // 修复（错误刷屏）：确定性错误（配置/运行时能力/授权类）重试同一条消息也不会成功。
+        // 旧行为会释放去重并让 provider 游标回退，导致同一条消息每 ~5s 重试、错误提示无限刷屏。
+        // 现在：确定性错误只提醒一次并提交游标；瞬时错误（网络/超时）保持原有重试语义。
+        const deterministicFailure = isDeterministicBotFailure(error);
+        // 确定性错误走正常 ACK 路径（错误提示仍然发给用户），让 provider 提交游标，
+        // 同一条消息不再被每 ~5s 重试；瞬时错误保持“释放去重 + ok:false”以支持重试。
+        if (!deterministicFailure) {
+          releaseInboundDelivery(inboundMessage);
+          hadBusinessFailure = true;
+          inboundBusinessFailure = true;
+        }
         const message = error instanceof Error ? error.message : String(error);
         const userFacingMessage = formatUserFacingBotError(error, locale);
         botsLogger.warn(
           undefined,
-          `provider callback failed provider=${provider} bot=${inboundMessage.botId} user=${inboundMessage.actor.providerUserId}: ${message}`,
+          `provider callback failed provider=${provider} bot=${inboundMessage.botId} user=${inboundMessage.actor.providerUserId} deterministic=${deterministicFailure}: ${message}`,
         );
         outbound = [
           administratorErrorReply(
@@ -6598,9 +6638,16 @@ export function createBotsService(
     // Bugfix: activeTaskId 来自 bot context，不应依赖 listTasks 必然返回同一条任务。
     // 某些筛选/索引时序下 listTasks 找不到 active task，之前会跳过 snapshot，导致 Progress 永远缺失。
     const statusTask = activeTask ?? activeTaskSnapshot?.meta ?? null;
+    // 修复（/status 滞后）：task meta 的 status 可能是上一轮的终态，任务实际在跑时
+    // 会显示“已完成”。以 CLI 权威快照的 control.phase 为准，meta 只作回退。
+    const runtimeSnapshot = context.activeTaskId
+      ? await readActiveTaskRuntimeSnapshot(context).catch(() => null)
+      : null;
+    const runtimeActive =
+      runtimeSnapshot?.phase === "running" || runtimeSnapshot?.phase === "prewarming";
     // Bugfix: 任务结束后 /status 只保留最终状态，避免把最后一次工具/思考进度误看成仍在执行。
     const latestProgress =
-      context.activeTaskId && (!statusTask || taskStatus(statusTask) === "running")
+      context.activeTaskId && (runtimeActive || !statusTask || taskStatus(statusTask) === "running")
         ? (liveStatusProgressByTaskId.get(context.activeTaskId)?.text ??
           readLatestTaskProgress(activeTaskSnapshot))
         : null;
@@ -6638,14 +6685,205 @@ export function createBotsService(
         formatStatusLine(
           locale,
           "statusState",
-          formatStatusStateValue(locale, statusTask ? taskStatus(statusTask) : "draft"),
+          formatStatusStateValue(locale, runtimeActive ? "running" : statusTask ? taskStatus(statusTask) : "draft"),
         ),
         workedDurationMs !== null
           ? formatStatusLine(locale, "statusWorked", formatTaskRunningDuration(workedDurationMs))
           : null,
+        runtimeSnapshot && runtimeSnapshot.queueItems.length > 0
+          ? formatStatusLine(locale, "statusQueue", `${runtimeSnapshot.queueItems.length}`)
+          : null,
         latestProgress ? formatStatusLine(locale, "statusProgress", latestProgress) : null,
       ].filter(Boolean) as string[]
     ).join("\n");
+  }
+
+  function formatTokenCount(value: number): string {
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+    return `${value}`;
+  }
+
+  async function handleUsage(message: BotInboundMessage): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "usage");
+    if (!auth.ok) return auth.reply;
+    if (!auth.context.activeTaskId) {
+      return [createOutbound(message.actor, msg(auth.locale, "usageEmpty"))];
+    }
+    const snapshot = await readActiveTaskRuntimeSnapshot(auth.context);
+    if (!snapshot) {
+      return [createOutbound(message.actor, msg(auth.locale, "usageEmpty"))];
+    }
+    const usage = snapshot.usage;
+    const active = snapshot.phase === "running" || snapshot.phase === "prewarming";
+    const lines = [
+      msg(auth.locale, "usageTitle"),
+      formatStatusLine(
+        auth.locale,
+        "statusTask",
+        auth.context.activeTaskId,
+      ),
+      formatStatusLine(
+        auth.locale,
+        "statusState",
+        formatStatusStateValue(auth.locale, active ? "running" : snapshot.phase),
+      ),
+      usage
+        ? msg(auth.locale, "usageTokens", {
+            input: formatTokenCount(usage.inputTokens),
+            output: formatTokenCount(usage.outputTokens),
+            cacheRead: formatTokenCount(usage.cacheReadTokens),
+            cacheWrite: formatTokenCount(usage.cacheWriteTokens),
+          })
+        : null,
+      snapshot.queueItems.length > 0
+        ? msg(auth.locale, "usageQueue", { count: snapshot.queueItems.length })
+        : null,
+    ].filter(Boolean) as string[];
+    return [createOutbound(message.actor, lines.join("\n"))];
+  }
+
+  async function handleDiff(message: BotInboundMessage): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "diff");
+    if (!auth.ok) return auth.reply;
+    const isRemoteWorkspace = Boolean(auth.context.workspaceIdentity);
+    // 本地工作区直接读 git（未暂存 + 已暂存），远端工作区没有转发 git 通道，
+    // 退回任务级改动计数，避免用本地 git 误读远端路径。
+    if (!isRemoteWorkspace && deps.gitService) {
+      try {
+        const [unstaged, staged] = await Promise.all([
+          deps.gitService.getChanges({
+            workspacePath: auth.context.workspacePath,
+            sourceId: "unstaged",
+          }),
+          deps.gitService.getChanges({
+            workspacePath: auth.context.workspacePath,
+            sourceId: "staged",
+          }),
+        ]);
+        const changes = [...unstaged, ...staged];
+        if (changes.length === 0) {
+          return [createOutbound(message.actor, msg(auth.locale, "diffEmpty"))];
+        }
+        const files = changes.length;
+        const additions = changes.reduce((sum, change) => sum + change.added, 0);
+        const deletions = changes.reduce((sum, change) => sum + change.removed, 0);
+        const shown = changes.slice(0, 10);
+        const lines = [
+          msg(auth.locale, "diffTitle"),
+          msg(auth.locale, "diffLine", { files, additions, deletions }),
+          ...shown.map((change) =>
+            msg(auth.locale, "diffFileLine", {
+              path: change.workspaceRelativePath || change.repoRelativePath,
+              additions: change.added,
+              deletions: change.removed,
+            }),
+          ),
+          files > shown.length
+            ? msg(auth.locale, "diffMoreFiles", { count: files - shown.length })
+            : null,
+        ].filter(Boolean) as string[];
+        return [createOutbound(message.actor, lines.join("\n"))];
+      } catch (error) {
+        botsLogger.warn(
+          undefined,
+          `bot diff via git failed workspace=${getWorkspaceKey(auth.context.workspacePath, auth.context.workspaceIdentity)}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    const snapshot = await readActiveTaskRuntimeSnapshot(auth.context);
+    const fileChanges = snapshot?.fileChanges;
+    if (!fileChanges || fileChanges.files === 0) {
+      return [createOutbound(message.actor, msg(auth.locale, "diffEmpty"))];
+    }
+    const lines = [
+      msg(auth.locale, "diffTitle"),
+      msg(auth.locale, "diffLine", {
+        files: fileChanges.files,
+        additions: fileChanges.additions,
+        deletions: fileChanges.deletions,
+      }),
+      isRemoteWorkspace || !deps.gitService ? msg(auth.locale, "diffRemoteHint") : null,
+    ].filter(Boolean) as string[];
+    return [createOutbound(message.actor, lines.join("\n"))];
+  }
+
+  const HISTORY_MESSAGE_MAX_CHARS = 300;
+  const RESULT_MESSAGE_MAX_CHARS = 4_000;
+
+  function truncateBotText(text: string, maxChars: number): string {
+    const trimmed = text.trim();
+    return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars - 1)}…` : trimmed;
+  }
+
+  async function handleHistoryList(
+    message: BotInboundMessage,
+    value: string | undefined,
+  ): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "history");
+    if (!auth.ok) return auth.reply;
+    if (!auth.context.activeTaskId) {
+      return [createOutbound(message.actor, msg(auth.locale, "historyEmpty"))];
+    }
+    const parsed = value?.trim() ? Number.parseInt(value.trim(), 10) : NaN;
+    const limit = Number.isFinite(parsed)
+      ? Math.max(1, Math.min(parsed, 20))
+      : 10;
+    const snapshot = await readActiveTaskRuntimeSnapshot(auth.context, limit);
+    const messages = snapshot?.recentMessages ?? [];
+    if (messages.length === 0) {
+      return [createOutbound(message.actor, msg(auth.locale, "historyEmpty"))];
+    }
+    const lines = [
+      msg(auth.locale, "historyTitle", { count: messages.length }),
+      ...messages.map((entry) =>
+        msg(
+          auth.locale,
+          entry.role === "user" ? "historyUserLine" : "historyAssistantLine",
+          { text: truncateBotText(entry.text, HISTORY_MESSAGE_MAX_CHARS) },
+        ),
+      ),
+      msg(auth.locale, "historyLimitHint", { max: 20 }),
+    ];
+    return [createOutbound(message.actor, lines.join("\n"))];
+  }
+
+  async function handleResult(
+    message: BotInboundMessage,
+    value: string | undefined,
+  ): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "result");
+    if (!auth.ok) return auth.reply;
+    if (!auth.context.activeTaskId) {
+      return [createOutbound(message.actor, msg(auth.locale, "resultEmpty"))];
+    }
+    const snapshot = await readActiveTaskRuntimeSnapshot(auth.context);
+    const assistantMessages = (snapshot?.recentMessages ?? []).filter(
+      (entry) => entry.role === "assistant",
+    );
+    if (assistantMessages.length === 0) {
+      return [createOutbound(message.actor, msg(auth.locale, "resultEmpty"))];
+    }
+    const parsed = value?.trim() ? Number.parseInt(value.trim(), 10) : NaN;
+    // 序号语义：1 = 最近一条产出（倒序），便于直接取最新结果。
+    const index = Number.isFinite(parsed) ? parsed : 1;
+    if (index < 1 || index > assistantMessages.length) {
+      return [
+        createOutbound(message.actor, msg(auth.locale, "resultMissingIndex", { index })),
+      ];
+    }
+    const entry = assistantMessages[assistantMessages.length - index];
+    if (!entry) {
+      return [createOutbound(message.actor, msg(auth.locale, "resultEmpty"))];
+    }
+    return [
+      createOutbound(
+        message.actor,
+        truncateBotText(entry.text, RESULT_MESSAGE_MAX_CHARS),
+        undefined,
+        { locale: auth.locale },
+      ),
+    ];
   }
 
   async function handleHelp(message: BotInboundMessage): Promise<BotOutboundMessage[]> {
@@ -6702,6 +6940,17 @@ export function createBotsService(
         continue;
       }
       lines.push(msg(locale, helpMessageByCommand[command]));
+    }
+    if (!groupRole) {
+      // 私聊补充列表里原本没暴露的运维命令（任务/停止/队列/用量/改动/历史/结果）。
+      lines.push(
+        msg(locale, "helpTask"),
+        msg(locale, "helpQueue"),
+        msg(locale, "helpUsage"),
+        msg(locale, "helpDiff"),
+        msg(locale, "helpHistory"),
+        msg(locale, "helpResult"),
+      );
     }
     return lines.join("\n");
   }
@@ -7123,6 +7372,179 @@ export function createBotsService(
           : auth.locale === "en-US"
             ? "Input changed or started; cancellation was not applied."
             : "输入已变化或开始执行，未取消。",
+      ),
+    ];
+  }
+
+  /**
+   * 私聊忙时入队：显式 requestedDelivery=queue，让 CLI 把输入放进权威队列，
+   * 回复中带队列位次；/队列 可查看或删除。
+   */
+  async function enqueuePrivateQueuedPrompt(params: {
+    bot: BotConfig;
+    actor: BotActor;
+    context: BotContextState;
+    locale: Locale | undefined;
+    taskId: string;
+    traceId: string;
+    content: string;
+    attachments: ZCodePromptAttachment[];
+    modelSelection?: ModelSelection;
+  }): Promise<BotOutboundMessage[]> {
+    const taskService = await resolveZCodeTaskServiceForContext(params.context);
+    try {
+      await taskService.sendPrompt({
+        taskId: params.taskId,
+        traceId: params.traceId,
+        content: params.content,
+        attachments: params.attachments.length > 0 ? params.attachments : undefined,
+        botDeliveryTarget: resolveAutomationBotDeliveryTarget(params.actor),
+        modelSelection: params.modelSelection,
+        requestedDelivery: "queue",
+      });
+    } catch (error) {
+      const message = formatUserFacingBotError(error, params.locale);
+      botsLogger.warn(
+        undefined,
+        `bot queue enqueue failed bot=${params.bot.id} task=${params.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return [
+        createOutbound(params.actor, msg(params.locale, "queueEnqueueFailed", { message })),
+      ];
+    }
+    // 位次只是提示：读不到快照也视为入队成功（ACK 已经返回）。
+    const snapshot = await taskService
+      .readBotTaskRuntimeSnapshot?.({ taskId: params.taskId })
+      .catch(() => null);
+    const item = snapshot?.queueItems.find((entry) => entry.sourceCommandId === params.traceId);
+    const position = item?.queuePosition ?? snapshot?.queueItems.length;
+    return [
+      createOutbound(
+        params.actor,
+        position !== undefined
+          ? msg(params.locale, "queueEnqueuedWithPosition", { position })
+          : msg(params.locale, "queueEnqueued"),
+      ),
+    ];
+  }
+
+  async function readActiveTaskRuntimeSnapshot(
+    context: BotContextState,
+    messageLimit?: number,
+  ): Promise<BotTaskRuntimeSnapshot | null> {
+    if (!context.activeTaskId) return null;
+    const taskService = await resolveZCodeTaskServiceForContext(context);
+    if (!taskService.readBotTaskRuntimeSnapshot) return null;
+    return taskService
+      .readBotTaskRuntimeSnapshot({
+        taskId: context.activeTaskId,
+        ...(messageLimit !== undefined ? { messageLimit } : {}),
+      })
+      .catch(() => null);
+  }
+
+  const QUEUE_ITEM_STATE_MESSAGE_IDS = {
+    queued: "queueItemStateQueued",
+    reserved: "queueItemStateReserved",
+    promoting: "queueItemStatePromoting",
+  } as const satisfies Record<BotQueuedInputSummary["dispatchState"], BotMessageId>;
+
+  function formatQueueItemText(text: string, maxLength = 60): string {
+    const normalized = text.replace(/\s+/gu, " ").trim();
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+  }
+
+  async function handleQueueList(message: BotInboundMessage): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "queue");
+    if (!auth.ok) return auth.reply;
+    if (!auth.context.activeTaskId) {
+      return [createOutbound(message.actor, msg(auth.locale, "noActiveTask"))];
+    }
+    const snapshot = await readActiveTaskRuntimeSnapshot(auth.context);
+    if (!snapshot) {
+      return [createOutbound(message.actor, msg(auth.locale, "queueEmpty"))];
+    }
+    if (snapshot.queueItems.length === 0) {
+      return [createOutbound(message.actor, msg(auth.locale, "queueEmpty"))];
+    }
+    const lines = [
+      msg(auth.locale, "queueTitle", {
+        count: snapshot.queueItems.length,
+        autoDrain: msg(
+          auth.locale,
+          snapshot.queueAutoDrain ? "queueAutoDrainOn" : "queueAutoDrainOff",
+        ),
+      }),
+      ...snapshot.queueItems.map((item, index) =>
+        msg(auth.locale, "queueItemLine", {
+          index: index + 1,
+          state: msg(auth.locale, QUEUE_ITEM_STATE_MESSAGE_IDS[item.dispatchState]),
+          text: formatQueueItemText(item.text),
+        }),
+      ),
+      msg(auth.locale, "queueCancelHint"),
+    ];
+    return [createOutbound(message.actor, lines.join("\n"))];
+  }
+
+  async function handleQueueCancel(
+    message: BotInboundMessage,
+    value: string | undefined,
+  ): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "queue");
+    if (!auth.ok) return auth.reply;
+    if (!auth.context.activeTaskId) {
+      return [createOutbound(message.actor, msg(auth.locale, "noActiveTask"))];
+    }
+    const raw = value?.trim();
+    if (!raw) return handleQueueList(message);
+    const snapshot = await readActiveTaskRuntimeSnapshot(auth.context);
+    if (!snapshot || snapshot.queueItems.length === 0) {
+      return [createOutbound(message.actor, msg(auth.locale, "queueEmpty"))];
+    }
+    // 支持“序号”（1 起）与直接给 queueItemId/commandId 两种写法。
+    const index = /^\d+$/u.test(raw) ? Number.parseInt(raw, 10) - 1 : -1;
+    const item =
+      index >= 0
+        ? snapshot.queueItems[index]
+        : snapshot.queueItems.find(
+            (entry) => entry.queueItemId === raw || entry.sourceCommandId === raw,
+          );
+    if (!item) {
+      return [createOutbound(message.actor, msg(auth.locale, "queueCancelMissing"))];
+    }
+    const taskService = await resolveZCodeTaskServiceForContext(auth.context);
+    if (!taskService.deleteBotQueuedInput) {
+      return [
+        createOutbound(
+          message.actor,
+          msg(auth.locale, "queueCancelFailed", {
+            message: "Runtime cannot cancel queued input",
+          }),
+        ),
+      ];
+    }
+    try {
+      await taskService.deleteBotQueuedInput({
+        taskId: auth.context.activeTaskId,
+        commandId: `queue-cancel-${auth.context.activeTaskId}-${item.queueItemId}`,
+        queueItemId: item.queueItemId,
+        botId: auth.bot.id,
+        chatId: message.actor.chatId,
+        actorId: message.actor.providerUserId,
+      });
+    } catch (error) {
+      const reason = formatUserFacingBotError(error, auth.locale);
+      botsLogger.warn(
+        undefined,
+        `bot queue cancel failed bot=${auth.bot.id} task=${auth.context.activeTaskId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return [createOutbound(message.actor, msg(auth.locale, "queueCancelFailed", { message: reason }))];
+    }
+    return [
+      createOutbound(
+        message.actor,
+        msg(auth.locale, "queueCancelled", { text: formatQueueItemText(item.text) }),
       ),
     ];
   }
@@ -7656,13 +8078,16 @@ export function createBotsService(
     if (elicitationReply) {
       return elicitationReply;
     }
+    // 修复：私聊忙时不再直接拒绝（旧行为要用户反复重发）。改为按 CLI 队列语义入队，
+    // 可用 /队列 查看与删除，结果仍沿当前订阅回推本会话。
+    let privateQueueRequested = false;
     if (
       !auth.context.group &&
       auth.context.mode === "task" &&
       auth.context.activeTaskId &&
       (await getContextTaskBlockReason(auth.context))
     ) {
-      return [createOutbound(message.actor, msg(auth.locale, "taskRunning"))];
+      privateQueueRequested = true;
     }
     let preparedMessage: PreparedBotMessageContent;
     try {
@@ -7709,17 +8134,26 @@ export function createBotsService(
         !submissionModelSelection ||
         (draftOptions.modelSelection && selectionView?.selectionIssue)
       ) {
-        throw new BotAdminRequiredError("model", "Bot 无法从目标 Host 解析 Submission 模型");
+        // Bugfix（3.14.0 起）：Host 侧模型清单瞬时不可用/为空时，旧行为直接抛
+        // “Bot 无法从目标 Host 解析 Submission 模型”，错误回复会随游标重试无限刷屏，
+        // 且用户只能解绑重绑才能恢复。改为降级：不显式固定模型，交给 CLI admission
+        // 用会话/默认选择接手；同时清掉不可用的草稿选择，避免每条消息都重复失败。
+        botsLogger.warn(
+          undefined,
+          `bot draft model selection fallback bot=${auth.bot.id} workspace=${getWorkspaceKey(auth.context.workspacePath, auth.context.workspaceIdentity)} issue=${JSON.stringify(selectionView?.selectionIssue ?? "unresolved")}`,
+        );
       }
       const submissionDraftOptions: BotDraftOptions = {
         ...draftOptions,
-        modelSelection: {
-          providerId: submissionModelSelection.providerId,
-          modelId: submissionModelSelection.modelId,
-          ...(submissionModelSelection.options
-            ? { options: { ...submissionModelSelection.options } }
-            : {}),
-        },
+        modelSelection: submissionModelSelection
+          ? {
+              providerId: submissionModelSelection.providerId,
+              modelId: submissionModelSelection.modelId,
+              ...(submissionModelSelection.options
+                ? { options: { ...submissionModelSelection.options } }
+                : {}),
+            }
+          : undefined,
       };
       const zcodeTaskService = await resolveZCodeTaskServiceForContext(auth.context);
       const task = await zcodeTaskService.createTask({
@@ -7850,17 +8284,42 @@ export function createBotsService(
     const originalSelection = await zcodeTaskService.getTaskModelSelection({
       taskId: auth.context.activeTaskId,
     });
-    const selectionView = originalSelection
+    let selectionView = originalSelection
       ? await readModelSelectionView(auth.context, originalSelection)
       : null;
-    const effectiveSelection = selectionView?.effectiveSelection;
+    let effectiveSelection = selectionView?.effectiveSelection ?? undefined;
     if (!effectiveSelection || selectionView?.selectionIssue) {
-      throw new Error(msg(auth.locale, "sessionModelUnavailable"));
+      // 恢复：远端 runtime/模型清单可能只是瞬时抖动。短暂等待后重试一次，
+      // 成功则沿用原选择；仍失败也不抛错（旧行为会让微信端持续刷屏并只能重新绑定）。
+      await new Promise((resolve) => setTimeout(resolve, BOT_MODEL_SELECTION_RETRY_DELAY_MS));
+      selectionView = originalSelection
+        ? await readModelSelectionView(auth.context, originalSelection)
+        : null;
+      effectiveSelection = selectionView?.effectiveSelection ?? undefined;
+      if (!effectiveSelection || selectionView?.selectionIssue) {
+        botsLogger.warn(
+          undefined,
+          `bot task model selection fallback bot=${auth.bot.id} task=${auth.context.activeTaskId} issue=${JSON.stringify(selectionView?.selectionIssue ?? "unresolved")}`,
+        );
+      }
     }
     await broadcastTaskListChange(auth.context, auth.context.activeTaskId, "resumed");
     runningTasks.add(auth.context.activeTaskId);
     await watchTaskStream(auth.bot, message.actor, auth.context, auth.user);
     const traceId = generateTraceId(auth.context.activeTaskId);
+    if (privateQueueRequested) {
+      return enqueuePrivateQueuedPrompt({
+        bot: auth.bot,
+        actor: message.actor,
+        context: auth.context,
+        locale: auth.locale,
+        taskId: auth.context.activeTaskId,
+        traceId,
+        content: preparedMessage.content,
+        attachments: preparedMessage.zcodeAttachments,
+        modelSelection: effectiveSelection,
+      });
+    }
     await broadcastTaskListChange(auth.context, auth.context.activeTaskId, "prompt_sent", {
       prompt: {
         content: preparedMessage.content,
@@ -7892,7 +8351,9 @@ export function createBotsService(
       return auth.reply;
     }
     if (message.actor.threadId) return createStatusReply(message.actor, auth.context, auth.locale);
-    const blockReason = await getContextTaskBlockReason(auth.context);
+    // 私聊不再因“某任务在跑”拒绝列出/切换：用户需要看到进行中的任务并直接切换
+    // （旧行为会连列表都不给看）。群聊仍按群队列/交互闸门保护。
+    const blockReason = auth.context.group ? await getContextTaskBlockReason(auth.context) : null;
     if (blockReason) {
       // Bugfix: 运行中展示 /task 列表会让用户继续点选其它 task，
       // 即使后续切换被拒绝，也会留下误导性的 pending selection。
@@ -7906,17 +8367,40 @@ export function createBotsService(
     const activeTask = auth.context.activeTaskId
       ? tasks.find((task) => task.taskId === auth.context.activeTaskId)
       : null;
+    // 进行中标记：CLI 权威快照（当前任务）+ 进程内 runningTasks + 任务 meta 三者取或。
+    const activeSnapshot = auth.context.activeTaskId
+      ? await readActiveTaskRuntimeSnapshot(auth.context).catch(() => null)
+      : null;
+    const activeRuntimeRunning =
+      activeSnapshot?.phase === "running" || activeSnapshot?.phase === "prewarming";
+    const isTaskRunning = (taskId: string): boolean =>
+      (auth.context.activeTaskId === taskId && activeRuntimeRunning) ||
+      runningTasks.has(taskId);
+    const runningCount = tasks.filter((task) => isTaskRunning(task.taskId)).length;
+    const describeTask = (task: ZCodeTaskMeta): string => {
+      const base = taskStatus(task);
+      if (!isTaskRunning(task.taskId)) return base;
+      const progress =
+        auth.context.activeTaskId === task.taskId ? activeSnapshot?.queueItems.length : undefined;
+      return progress
+        ? msg(auth.locale, "taskRunningWithProgress", {
+            progress: msg(auth.locale, "usageQueue", { count: progress }),
+          })
+        : msg(auth.locale, "taskRunningSuffix");
+    };
     const selection: SelectionPrompt = {
       id: `task-${Date.now()}`,
-      title: msg(auth.locale, "taskSelectTitle", {
-        task: activeTask ? `${activeTask.title} (${activeTask.taskId})` : "draft",
-      }),
+      title: runningCount
+        ? msg(auth.locale, "taskSelectTitleWithRunning", { count: runningCount })
+        : msg(auth.locale, "taskSelectTitle", {
+            task: activeTask ? `${activeTask.title} (${activeTask.taskId})` : "draft",
+          }),
       currentId: auth.context.activeTaskId ?? undefined,
       action: "task.set",
       options: taskEntries.map((entry) => ({
         id: entry.task.taskId,
         label: entry.task.title,
-        description: taskStatus(entry.task),
+        description: describeTask(entry.task),
       })),
     };
     if (taskEntries.length > 0) {
@@ -8830,13 +9314,28 @@ export function createBotsService(
         }
         switch (command.type) {
           case "queue.cancel":
-            return cancelGroupInput(message, command.commandId);
+            return message.actor.chatType === "group"
+              ? cancelGroupInput(message, command.commandId ?? command.value ?? "")
+              : handleQueueCancel(message, command.value ?? command.commandId);
+          case "queue.list":
+            return handleQueueList(message);
+          case "usage":
+            return handleUsage(message);
+          case "diff":
+            return handleDiff(message);
+          case "result":
+            return handleResult(message, command.value);
           case "group.enable":
             return handleGroupActivation(message, true);
           case "group.disable":
             return handleGroupActivation(message, false);
           case "group.history":
-            return handleGroupHistory(message, command.enabled);
+            // /history 在群里仍是历史开关；私聊无参时回放最近消息（/历史 [数量]）。
+            return message.actor.chatType === "group"
+              ? handleGroupHistory(message, command.enabled)
+              : handleHistoryList(message, undefined);
+          case "history.list":
+            return handleHistoryList(message, command.value);
           case "selection.cancel":
             return handleSelectionCancel(message);
           case "bind":
@@ -9482,8 +9981,10 @@ export function createBotsService(
             );
             if (!taskEntry) return [createOutbound(message.actor, msg(auth.locale, "taskMissing"))];
             const { task } = taskEntry;
+            // 私聊允许在任务运行中切换（用户要看的正是“进行中的任务列表”）；切换后
+            // 私聊订阅按 activeTaskId 重算，旧任务的输出不再回推本会话。
             const blockReason =
-              auth.context.activeTaskId !== task.taskId
+              auth.context.group && auth.context.activeTaskId !== task.taskId
                 ? await getContextTaskBlockReason(auth.context)
                 : null;
             if (blockReason) {
@@ -9504,6 +10005,8 @@ export function createBotsService(
             if (auth.context.activeTaskId !== nextContext.activeTaskId)
               stopGroupSynchronization(auth.context);
             await restoreGroupSynchronization(nextContext);
+            if (!nextContext.group && auth.context.activeTaskId !== nextContext.activeTaskId)
+              await restorePrivateSynchronization(auth.bot.id);
             pendingTaskSelectionsByContext.delete(getActorContextKey(message.actor));
             return createStatusReply(message.actor, nextContext, auth.locale);
           }

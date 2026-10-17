@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { BUILTIN_MODEL_PROVIDER_IDS, type UsageEntitlementSnapshot } from "@zcode/shared";
 import { resolveUsageEntitlementOutcome } from "@/lib/codingPlanProvider.js";
 import { hasActiveCodingPlanSnapshot } from "@/CodingPlanUsageRemainingPanel.js";
-import { resolveSidebarCodingPlanUpgradeProviderId } from "@/lib/sidebarCodingPlanUpgrade.js";
 import { getUsageEntitlementScheduleState } from "@/lib/usageEntitlementRefreshPolicy.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 
@@ -21,32 +20,6 @@ describe("所有入口使用订阅权益", () => {
     expect(
       hasActiveCodingPlanSnapshot({ ...snapshot, provider: { id: "p", name: "p" } }, "p"),
     ).toBe(false);
-  });
-  it("侧栏不能把 quota 当作可升级的已购套餐", () => {
-    const providerId = BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan;
-    expect(
-      resolveSidebarCodingPlanUpgradeProviderId({
-        modelProvidersLoading: false,
-        availableProviders: [
-          {
-            providerId,
-            label: "BigModel",
-            accountAccess: {
-              type: "zhipu-account",
-              family: "bigmodel",
-              planKind: "individual-coding-plan",
-            },
-          },
-        ],
-        entitlements: [
-          {
-            providerId,
-            loading: false,
-            snapshot: { ...snapshot, provider: { id: providerId, name: "BigModel" } },
-          },
-        ],
-      }),
-    ).toBeUndefined();
   });
   it("明确无订阅不能被 quota 覆盖", () => {
     expect(resolveUsageEntitlementOutcome({ ...snapshot, unavailableReason: "no_plan" })).toBe(

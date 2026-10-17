@@ -183,57 +183,8 @@ describe("remote workspace connect telemetry IPC", () => {
     expect(options.logger.warn).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps Coding Plan PayPal callback openExternal requests in the sender webview", async () => {
-    const { registerRemoteIpcHandlers } = await import("../src/main/desktopMainIpcRemote.js");
-    const options = createOptions();
-    registerRemoteIpcHandlers(options);
-    const listener = h.listeners.get(PlatformChannels.OpenExternal);
-    expect(listener).toBeDefined();
-
-    const sender = {
-      getURL: vi.fn(() => "https://www.sandbox.paypal.com/agreements/approve"),
-      loadURL: vi.fn(() => Promise.resolve()),
-    };
-    const returnTo = encodeURIComponent(
-      "/coding-plan?provider=zai&embedded=app&lang=cn&theme=zai-dark",
-    );
-    const callbackUrl = `http://localhost:3000/coding-plan/payment/callback?channel=paypal&status=return&returnTo=${returnTo}&approval_token_id=setup-1`;
-    listener?.({ sender }, callbackUrl);
-
-    expect(sender.loadURL).toHaveBeenCalledWith(callbackUrl);
-    expect(h.shellOpenExternal).not.toHaveBeenCalled();
-  });
-
-  it("uses Coding Plan bridge sourceUrl when routing openExternal callbacks", async () => {
-    const { registerRemoteIpcHandlers } = await import("../src/main/desktopMainIpcRemote.js");
-    const options = createOptions();
-    registerRemoteIpcHandlers(options);
-    const listener = h.listeners.get(PlatformChannels.OpenExternal);
-    expect(listener).toBeDefined();
-
-    const sender = {
-      getURL: vi.fn(() => "file:///Applications/ZCode/index.html"),
-      loadURL: vi.fn(() => Promise.resolve()),
-    };
-    const returnTo = encodeURIComponent(
-      "/coding-plan?provider=zai&embedded=app&lang=cn&theme=zai-dark",
-    );
-    const callbackUrl = `http://localhost:3000/coding-plan/payment/callback?channel=paypal&status=return&returnTo=${returnTo}&approval_token_id=setup-1`;
-    listener?.(
-      {
-        sender,
-        senderFrame: { url: "https://www.sandbox.paypal.com/agreements/approve" },
-      },
-      {
-        sourceUrl: "file:///stale-host-url.html",
-        url: callbackUrl,
-      },
-    );
-
-    expect(sender.loadURL).toHaveBeenCalledWith(callbackUrl);
-    expect(h.shellOpenExternal).not.toHaveBeenCalled();
-  });
-
+  // Phase 1 已删除 Coding Plan 内嵌 webview（推广功能移除），
+  // 原先两条“回调留在 webview 内”的用例不再适用；跨域回调用例仍保留在下方。
   it("opens cross-origin Coding Plan callback openExternal requests externally", async () => {
     const { registerRemoteIpcHandlers } = await import("../src/main/desktopMainIpcRemote.js");
     const options = createOptions();

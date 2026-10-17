@@ -31,10 +31,6 @@ import {
   hasCodingPlanUsageRemainingPanel,
   resolveCodingPlanUsageRemainingState,
 } from "../src/CodingPlanUsageRemainingPanel.js";
-import {
-  resolveSidebarCodingPlanUpgradeFallbackProviderId,
-  resolveSidebarCodingPlanUpgradeProviderId,
-} from "../src/lib/sidebarCodingPlanUpgrade.js";
 import { getContextQuotaMeterGridClass } from "../src/chat-input-toolbar/contextQuotaMeterGrid.js";
 import { resolveMcpQuotaLimit } from "../src/lib/codingPlanQuotaPresentation.js";
 import enMessages from "../src/i18n/locales/en-US.js";
@@ -69,15 +65,6 @@ const codingPlanQuotaResetUiMock = vi.hoisted(() => {
 
 vi.mock("@/hooks/useCodingPlanQuotaResetUi.js", () => ({
   useCodingPlanQuotaResetUi: () => codingPlanQuotaResetUiMock.current,
-}));
-
-vi.mock("../src/CodingPlanBillingDiscount.js", () => ({
-  CodingPlanBillingDiscountBadge: ({ size, variant }: { size?: string; variant?: string }) =>
-    `billing-discount-badge:${variant ?? "gradient"}:${size ?? "default"}`,
-  CodingPlanBillingDiscountBadgePill: ({ size, variant }: { size?: string; variant?: string }) =>
-    `billing-discount-badge:${variant ?? "gradient"}:${size ?? "default"}`,
-  CodingPlanBillingDiscountInfoDialog: () => "billing-discount-info",
-  useCodingPlanBillingDiscount: () => ({ active: true, loading: false }),
 }));
 
 describe("context usage access refresh", () => {
@@ -1494,134 +1481,13 @@ describe("Coding Plan usage remaining panel state", () => {
     ).toBe("team:bigmodel:team-pro:org-a:project-a");
   });
 
-  it("shows the sidebar upgrade entry for authenticated users without an active plan", () => {
-    const availableProviders = [
-      createCodingPlanProvider(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan),
-    ];
-    const entitlements = [
-      {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-        loading: false,
-        error: null,
-        snapshot: {
-          generatedAt: 1,
-          authenticated: true,
-          unavailableReason: "no_plan" as const,
-          provider: {
-            id: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-            name: "Z.ai Coding Plan",
-          },
-          remaining: null,
-          subscription: null,
-          quota: null,
-        },
-      },
-    ];
 
-    expect(
-      resolveSidebarCodingPlanUpgradeProviderId({
-        availableProviders,
-        entitlements,
-        modelProvidersLoading: false,
-      }),
-    ).toBe(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan);
-  });
 
-  it("falls back to the current provider family for the profile upgrade entry", () => {
-    expect(resolveSidebarCodingPlanUpgradeFallbackProviderId("bigmodel")).toBe(
-      BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-    );
-    expect(resolveSidebarCodingPlanUpgradeFallbackProviderId("zai")).toBe(
-      BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    );
-    expect(resolveSidebarCodingPlanUpgradeFallbackProviderId(null)).toBe(
-      BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    );
-  });
 
-  it("keeps the sidebar upgrade entry for max plan users", () => {
-    const availableProviders = [
-      createCodingPlanProvider(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan),
-    ];
-    const entitlements = [
-      {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-        loading: false,
-        error: null,
-        snapshot: {
-          generatedAt: 1,
-          authenticated: true,
-          provider: {
-            id: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-            name: "Z.ai Coding Plan",
-          },
-          remaining: null,
-          subscription: {
-            identityType: "unknown" as const,
-            identityMasked: null,
-            details: [{ productId: "coding-max", productName: "Coding Max" }],
-          },
-          quota: {
-            level: "max",
-            limits: [],
-          },
-        },
-      },
-    ];
-
-    expect(
-      resolveSidebarCodingPlanUpgradeProviderId({
-        availableProviders,
-        entitlements,
-        modelProvidersLoading: false,
-      }),
-    ).toBe(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan);
-  });
-
-  it("hides the sidebar upgrade entry for team plan users", () => {
-    const availableProviders = [
-      createCodingPlanProvider(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan),
-    ];
-    const entitlements = [
-      {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-        loading: false,
-        error: null,
-        snapshot: {
-          generatedAt: 1,
-          authenticated: true,
-          provider: {
-            id: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-            name: "Z.ai Coding Plan",
-          },
-          remaining: null,
-          subscription: {
-            identityType: "unknown" as const,
-            identityMasked: null,
-            details: [
-              {
-                productId: "team-standard",
-                productName: "Team Standard",
-              },
-            ],
-          },
-          quota: null,
-        },
-      },
-    ];
-
-    expect(
-      resolveSidebarCodingPlanUpgradeProviderId({
-        availableProviders,
-        entitlements,
-        modelProvidersLoading: false,
-      }),
-    ).toBeUndefined();
-  });
 });
 
 describe("Start Plan context balance panel", () => {
-  it("renders Today's balance meters with an upgrade action", () => {
+  it("renders Today's balance meters", () => {
     const html = renderToStaticMarkup(
       createElement(ChatStartPlanBalancePanel, {
         config: {
@@ -1690,10 +1556,7 @@ describe("Start Plan context balance panel", () => {
     expect(html).not.toContain("750K");
     expect(html).not.toContain("1M");
     expect(html).not.toContain("settings.modelProvider.startPlan.balance.used");
-    expect(html).toContain("chat.quota.action.upgrade");
-    expect(html).toContain("button-gradient");
-    expect(html).toContain("billing-discount-badge:surface:compact");
-    expect(html).toContain("billing-discount-info");
+    expect(html).not.toContain("chat.quota.action.upgrade");
     expect(html).toContain("grid-cols-1");
     expect(html).toContain("space-y-0.5");
     expect(html).toContain("h-1.5");
@@ -1704,7 +1567,6 @@ describe("Start Plan context balance panel", () => {
     expect(html).toContain("duration-500");
     expect(html).toContain("motion-reduce:transition-none");
     expect(html).not.toContain("background-color");
-    expect(html).toContain("lucide-rocket");
   });
 
   it("omits the date for today's Start Plan balance renew time", () => {

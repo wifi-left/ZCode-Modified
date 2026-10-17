@@ -49,12 +49,6 @@ vi.mock("@/App.js", () => ({
   App: () => createElement("div", { "data-testid": "workspace-app" }),
 }));
 
-// Root 用例只验证挂载与远控开关；营销业务由专属测试覆盖，避免拉入整棵媒体/供应商依赖树。
-vi.mock("@/components/marketing-touch/MarketingTouchProvider.js", () => ({
-  MarketingTouchProvider: ({ children }: { children: unknown }) => children,
-  MarketingBanner: () => null,
-}));
-
 vi.mock("@/ConfirmDialog.js", () => ({
   ConfirmDialogHost: () => createElement("div", { "data-testid": "confirm-dialog-host" }),
 }));
@@ -80,13 +74,6 @@ vi.mock("@/hooks/useServices.js", () => ({
     },
   }),
   useOptionalServices: () => null,
-}));
-
-vi.mock("@/settings/CodingPlanUpgradeDialogProvider.js", () => ({
-  CodingPlanUpgradeDialogProvider: ({ children }: { children: unknown }) => children,
-  useCodingPlanUpgradeDialog: () => ({
-    openCodingPlanUpgrade: vi.fn(),
-  }),
 }));
 
 vi.mock("@/hooks/useWorkspaceServices.js", async (importOriginal) => {
@@ -291,9 +278,6 @@ async function renderRoot(options?: {
           success: false,
           error: "unsupported",
         })),
-        onUpdateReady: vi.fn(() => () => {}),
-        onUpdateStateChanged: vi.fn(() => () => {}),
-        getUpdateState: vi.fn(async () => ({ kind: "idle", enabled: true })),
         onUpdateCheckResult: vi.fn(() => () => {}),
         onPostUpdateReleaseNotes: vi.fn(() => () => {}),
         quitAndInstallUpdate: vi.fn(async () => {}),

@@ -41,7 +41,6 @@ vi.mock("@zcode/shared", () => ({
     ZoomOut: "zoomOut",
     ShowAbout: "showAbout",
     OpenChangelog: "openChangelog",
-    CheckForUpdates: "checkForUpdates",
     OpenFeedback: "openFeedback",
     ExportLogs: "exportLogs",
     ToggleDevTools: "toggleDevTools",
@@ -82,7 +81,6 @@ vi.mock("@zcode/shared", () => ({
     appQuit: "titleBar.menu.app.quit",
     helpAbout: "titleBar.menu.help.about",
     helpWhatsNew: "titleBar.menu.help.whatsNew",
-    helpCheckForUpdates: "titleBar.menu.help.checkForUpdates",
     helpToggleDevTools: "titleBar.menu.help.toggleDevTools",
     helpResourceManager: "titleBar.menu.help.resourceManager",
     helpToggleZCodeStdioTap: "titleBar.menu.help.toggleZCodeStdioTap",
@@ -135,18 +133,7 @@ vi.mock("@zcode/shared", () => ({
   },
 }));
 
-vi.mock("electron-updater", () => ({
-  default: {
-    autoUpdater: {
-      autoDownload: false,
-      autoInstallOnAppQuit: false,
-      logger: undefined,
-      on: vi.fn(),
-      checkForUpdates: vi.fn(() => Promise.resolve()),
-      quitAndInstall: vi.fn(),
-    },
-  },
-}));
+
 
 vi.mock("../src/main/autoUpdater.js", () => ({
   CHECK_FOR_UPDATE_MENU_ID: "check-for-update",
@@ -219,28 +206,21 @@ describe("desktopApplicationMenu endpoint submenu", () => {
     expect(findMenuItem(template, "ZCode Endpoint")).toBeUndefined();
   });
 
-  it("Preview 隐藏更新入口，生产版继续显示", async () => {
+  it("不再暴露手动检查更新入口", async () => {
+    // Phase 2 已删除自动更新：菜单里的 check-for-update 入口在任何环境都不存在。
     const { rebuildApplicationMenu } = await import("../src/main/desktopApplicationMenu.js");
 
-    envMock.value = "test";
-    rebuildApplicationMenu({
-      currentApplicationLocale: "en-US",
-      executeDesktopCommand: vi.fn(),
-    });
-    let template = buildFromTemplateMock.mock.calls.at(
-      -1,
-    )?.[0] as Electron.MenuItemConstructorOptions[];
-    expect(findMenuItem(template, undefined, "check-for-update")).toBeUndefined();
-
-    envMock.value = "production";
-    rebuildApplicationMenu({
-      currentApplicationLocale: "en-US",
-      executeDesktopCommand: vi.fn(),
-    });
-    template = buildFromTemplateMock.mock.calls.at(
-      -1,
-    )?.[0] as Electron.MenuItemConstructorOptions[];
-    expect(findMenuItem(template, undefined, "check-for-update")).toBeTruthy();
+    for (const env of ["test", "production"]) {
+      envMock.value = env;
+      rebuildApplicationMenu({
+        currentApplicationLocale: "en-US",
+        executeDesktopCommand: vi.fn(),
+      });
+      const template = buildFromTemplateMock.mock.calls.at(
+        -1,
+      )?.[0] as Electron.MenuItemConstructorOptions[];
+      expect(findMenuItem(template, undefined, "check-for-update")).toBeUndefined();
+    }
   });
 
   it("开发运行形态也隐藏已下线的压测开关", async () => {

@@ -61,7 +61,6 @@ vi.stubGlobal("window", {
     onWindowFullscreenChanged: vi.fn(() => () => {}),
     onTaskNotificationClick: vi.fn(() => () => {}),
     exportLogs: vi.fn(),
-    onUpdateReady: vi.fn(() => () => {}),
     onUpdateCheckResult: vi.fn(() => () => {}),
     quitAndInstallUpdate: vi.fn(async () => {}),
     getInstalledEditors: vi.fn(),
