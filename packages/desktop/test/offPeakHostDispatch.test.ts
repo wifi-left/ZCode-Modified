@@ -53,10 +53,8 @@ function setup() {
   };
   const dispose = vi.fn();
   const track = vi.fn();
-  const report = vi.fn();
   const dispatch = createDispatch({
     activeServices: { getOptional: () => service },
-    reportHostSessionCreate: report,
     parentPort: {},
     IZCodeTaskService: Symbol("task-service"),
     ensureOffPeakRuntime: async () => runtime,
@@ -84,7 +82,7 @@ function setup() {
     workspacePath: "/project",
     workspaceIdentity: "remote:ssh:test:/project",
   };
-  return { service, runtime, dispose, track, report, dispatch, request };
+  return { service, runtime, dispose, track, dispatch, request };
 }
 
 describe("Host OffPeak dispatch current execution contract", () => {
@@ -119,7 +117,6 @@ describe("Host OffPeak dispatch current execution contract", () => {
         }),
       );
       expect(state.service.createTask).not.toHaveBeenCalled();
-      expect(state.report).not.toHaveBeenCalled();
       expect(state.service.resumeTask).toHaveBeenCalledWith(
         expect.objectContaining({
           workspaceIdentity: request.workspaceIdentity,
@@ -154,15 +151,6 @@ describe("Host OffPeak dispatch current execution contract", () => {
         deferPersistenceUntilFirstPrompt: true,
       }),
     );
-    expect(state.report).toHaveBeenCalledExactlyOnceWith(
-      {},
-      {
-        sessionId: "new",
-      messageId: "trace-new",
-        source: "automation_idle",
-        workspaceIdentity: state.request.workspaceIdentity,
-      },
-    );
     expect(state.service.createTask.mock.calls[0]?.[0]).not.toHaveProperty("modelSelection");
     expect(state.service.sendPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -188,13 +176,4 @@ describe("Host OffPeak dispatch current execution contract", () => {
     expect(state.track).toHaveBeenCalledOnce();
     expect(state.dispose).toHaveBeenCalledWith("bound:idle-1:bound:run-1");
   });
-});
-
-it("闲时新建首发被拒绝时不报 session_create", async () => {
-  const state = setup();
-  state.service.sendPrompt.mockRejectedValue(new Error("rejected"));
-  await expect(state.dispatch({ ...state.request, sessionId: undefined })).rejects.toThrow(
-    "rejected",
-  );
-  expect(state.report).not.toHaveBeenCalled();
 });

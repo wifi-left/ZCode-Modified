@@ -52,6 +52,7 @@ import {
   zcodeSessionCreateParamsSchema,
   zcodeSessionEventsParamsSchema,
   zcodeSessionForkParamsSchema,
+  zcodeSessionPurgeParamsSchema,
   zcodeSessionGoalParamsSchema,
   zcodeSessionListParamsSchema,
   zcodeSessionMessagesParamsSchema,
@@ -2761,6 +2762,51 @@ export async function closeSession(context: ZCodeProtocolAgentServerContext, raw
   // 内存 event store 随 record 释放。
   await record.eventStore.deleteSession(params.sessionId as SessionId);
   return { closed: true };
+}
+
+export async function purgeSession(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+) {
+  const params = parseParams(zcodeSessionPurgeParamsSchema, rawParams);
+  const sessionStore = context.deps.sessionStore;
+  if (!sessionStore?.purgeSession) {
+    throw new Error("Session store does not support purgeSession");
+  }
+  const sessions: Array<{
+    sessionId: string;
+    sessionFound: boolean;
+    deletedMessages: number;
+    deletedParts: number;
+    deletedEntries: number;
+    deletedInputs: number;
+    deletedTodos: number;
+    deletedUsageRows: number;
+  }> = [];
+  let deletedAny = false;
+  for (const sessionId of [...new Set(params.sessionIds)]) {
+    // 运行中的会话先按 close 语义释放 runtime/订阅，再删持久化内容；未加载的归档会话可直接删库。
+    if (context.sessions.has(sessionId)) {
+      await closeSession(context, { sessionId });
+    }
+    const result = await sessionStore.purgeSession({ sessionID: sessionId as SessionId });
+    deletedAny ||= result.sessionFound;
+    sessions.push({ sessionId, ...result });
+  }
+  // 只有真删到会话行才值得重建数据库文件；批量收尾一次，避免逐条 VACUUM。
+  let vacuumed = false;
+  let freedBytes = 0;
+  if (deletedAny && sessionStore.vacuum) {
+    try {
+      const result = await sessionStore.vacuum();
+      vacuumed = true;
+      freedBytes = result.freedBytes;
+    } catch {
+      // VACUUM 只是空间回收；删除结果已经提交，失败不能把清理整体改写为失败。
+      vacuumed = false;
+    }
+  }
+  return { sessions, vacuumed, freedBytes };
 }
 
 export function shouldCloseSessionForExpectedPersistence(

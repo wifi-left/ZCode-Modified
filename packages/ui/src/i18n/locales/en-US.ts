@@ -650,6 +650,26 @@ const enUS: Record<string, string> = {
   "taskList.deleteAllArchivedResult": "Deleted {deleted}, skipped {skipped}, failed {failed}.",
   "taskList.deleteAllArchivedError":
     "The operation or list refresh failed. Refresh to check the remaining tasks.",
+  "taskList.cleanupArchivedMenu": "Clean local archive…",
+  "taskList.cleanupArchivedTitle": "Clean conversation archive",
+  "taskList.cleanupArchivedDescription":
+    "Select archived conversations whose local archive should be permanently deleted. This cannot be undone; unselected conversations are untouched.",
+  "taskList.cleanupArchivedSearch": "Search title or workspace",
+  "taskList.cleanupArchivedSelectAll": "Select all",
+  "taskList.cleanupArchivedClearAll": "Clear all",
+  "taskList.cleanupArchivedSelected": "{count} selected",
+  "taskList.cleanupArchivedLoading": "Loading archived conversations…",
+  "taskList.cleanupArchivedEmpty": "There are no archived conversations to clean.",
+  "taskList.cleanupArchivedConfirmTitle": "Permanently clean {count} conversation archive(s)?",
+  "taskList.cleanupArchivedConfirmDescription":
+    "Messages, queued inputs and local snapshots of the selected conversations will be permanently deleted and cannot be recovered.",
+  "taskList.cleanupArchivedConfirm": "Clean selected ({count})",
+  "taskList.cleanupArchivedBusy": "Cleaning…",
+  "taskList.cleanupArchivedResult":
+    "Cleaned {purged}, skipped {skipped}, failed {failed}, freed {size}.",
+  "taskList.cleanupArchivedUnavailable": "These projects cannot be read right now: {projects}.",
+  "taskList.cleanupArchivedNone": "No conversations selected.",
+  "taskList.cleanupArchivedError": "Cleanup failed. Please try again later.",
   "confirmDialog.taskArchiveTitle": "Archive this task?",
   "confirmDialog.taskArchiveDescription":
     "Task “{taskTitle}” will move to the archive list and can still be restored later.",

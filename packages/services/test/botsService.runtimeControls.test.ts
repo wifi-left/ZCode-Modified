@@ -171,6 +171,32 @@ describe("botsService weixin runtime controls", () => {
     service.disposeAll();
   });
 
+  it("recovers /status to draft when the active session was cleaned", async () => {
+    // 清理对话存档后 bot context 仍指向已删除的 session：旧行为让 getTaskConfigOptions
+    // 抛 Session not found，命令被当瞬时错误反复重试，微信里持续刷过期提示。
+    const taskService = f.createLegacyTaskService();
+    const { service, repo } = await createBoundTaskService({ taskService });
+    (taskService.getTaskSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Session not found: task-1"),
+    );
+    (taskService.getTaskConfigOptions as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Session not found: task-1"),
+    );
+
+    const replies = await service.handleInboundMessage({
+      botId: "webhook-1",
+      text: "/status",
+      actor,
+    });
+
+    expect(replies[0]?.text).not.toContain("会话已失效");
+    expect(replies[0]?.text).toContain("草稿");
+    const state = await repo.readState();
+    expect(state.bots["webhook-1"]?.activeTaskId).toBeNull();
+    expect(state.bots["webhook-1"]?.mode).toBe("draft");
+    service.disposeAll();
+  });
+
   it("lists and deletes queued inputs via /queue", async () => {
     const taskService = f.createLegacyTaskService();
     const deleteBotQueuedInput = vi.fn(async () => ({ status: "accepted" }));

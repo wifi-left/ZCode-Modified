@@ -40,12 +40,6 @@ export type SchedulerToMainMessage =
       // 决定是否开 powerSaveBlocker。每次 tick 后上报当前值（幂等）。
       type: "offpeak-active-count";
       count: number;
-    }
-  | {
-      // scheduler 进程每 60 秒的自采样本。
-      // main 只取其中的 heap 作 scheduler 角色事件的 heap 维度，CPU 与 RSS 仍以 getAppMetrics 为准。
-      type: "scheduler-resource-sample";
-      sample: NodeSelfResourceSample;
     };
 
 /** main → scheduler */

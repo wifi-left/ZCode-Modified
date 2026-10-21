@@ -12,6 +12,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   buildConversationTurnRenderUnits,
+  createConversationTurnRenderUnitsCache,
   resolveNextHighspeedExpiryMs,
 } from "@/v4/conversationTurnRenderUnits.js";
 import { resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
@@ -1057,5 +1058,39 @@ describe("buildConversationTurnRenderUnits", () => {
     expect(unit?.assistantTailRows.map((row) => row.rowId)).toEqual([6]);
     expect(unit?.workSegments?.[0]?.assistantHistoryRows.map((row) => row.rowId)).toEqual([3, 4]);
     expect(unit?.workSegments?.[0]?.assistantHistoryDefaultOpen).toBe(false);
+  });
+
+  it("reuses unchanged turn units across streaming frames and rebuilds only the changed turn", () => {
+    const cache = createConversationTurnRenderUnitsCache();
+    const history = [
+      turnHeader(1),
+      userInput(2, "q1"),
+      assistantText(3, "a1"),
+      turnHeader(4, { turnId: "turn-2" }),
+      userInput(5, "q2", { turnId: "turn-2" }),
+    ];
+    const first = buildConversationTurnRenderUnits(
+      [...history, assistantText(6, "a2", { turnId: "turn-2" })],
+      {},
+      cache,
+    );
+    const second = buildConversationTurnRenderUnits(
+      [...history, assistantText(6, "a2 grows", { turnId: "turn-2" })],
+      {},
+      cache,
+    );
+
+    // 历史轮次的行引用未变，必须复用同一个 unit；只有流式轮次重建。
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1]?.latestAssistantTextRow?.text).toBe("a2 grows");
+
+    // 会话阶段变化会影响折叠边界，缓存必须失效。
+    const third = buildConversationTurnRenderUnits(
+      [...history, assistantText(6, "a2 grows", { turnId: "turn-2" })],
+      { sessionPhase: "error" },
+      cache,
+    );
+    expect(third[0]).not.toBe(first[0]);
   });
 });

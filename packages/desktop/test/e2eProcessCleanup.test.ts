@@ -84,12 +84,6 @@ describe("desktop e2e process cleanup", () => {
     expect(mainSource).toMatch(
       /async function prepareAppQuit[\s\S]*?remoteSessionManager\.disposeAllAndWaitForAppShutdown\(reason\)/u,
     );
-    expect(mainSource).toMatch(
-      /async function prepareAppQuit[\s\S]*?stopRemoteUsageArmsPeriodicSampling\(\)[\s\S]*?remoteSessionManager\.disposeAllAndWaitForAppShutdown\(reason\)/u,
-    );
-    expect(mainSource).toMatch(
-      /async function prepareAppQuit[\s\S]*?stopDesktopResourceTelemetry\(\{ flushPendingWindows: true \}\)/u,
-    );
     // Phase 2 已删除自动更新：更新安装不再经过 prepareAppQuit("auto-update quitAndInstall")，
     // 该断言随之移除（Windows 应用退出仍由上面的唯一 Host 屏障覆盖）。
     expect(mainSource).toMatch(
@@ -106,10 +100,6 @@ describe("desktop e2e process cleanup", () => {
     // 窗口尺寸只在 resize/maximize/unmaximize 阶段保存，退出屏障不得新建该写入。
     expect(mainSource).not.toMatch(
       /appQuitPreparationInFlight = Promise\.all\(\[[\s\S]*?desktopWindowSizePersistence\?\.flush\(\)/u,
-    );
-    // /event/report 的内存内投递必须与 Host/Cron 清理并行进入同一个退出屏障，且等待有界。
-    expect(mainSource).toMatch(
-      /appQuitPreparationInFlight = Promise\.all\(\[[\s\S]*?appTelemetryCore\.flushPendingReports\(\{ timeoutMs: 2_000 \}\)/u,
     );
     // Bug 根因：Browser tab 已改为进程内 stateless residency，完整退出不再恢复 tab。
     // 退出屏障只等待真实的 Host/Cron owner；继续要求 recovery idle 会让测试绑定已删除的恢复链路。

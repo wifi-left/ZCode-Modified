@@ -1,4 +1,4 @@
-import type { AgentTelemetryCausation, Model } from "@zcode/contracts";
+import type { Model } from "@zcode/contracts";
 import type { TraceContext } from "../deps.js";
 import {
   canStartMemoryRecall,
@@ -74,7 +74,6 @@ export function startProjectMemoryRecallPrefetch(
   const recalledPathsSnapshot = new Set(recallState.recalledPaths);
   void prefetchProjectMemories(runtime, {
     abortSignal: abortController.signal,
-    causation: runtime.agentTelemetry.captureCausation(),
     model: input.model,
     query,
     readFileStateSnapshot,
@@ -181,7 +180,6 @@ async function prefetchProjectMemories(
   runtime: AgentRuntimeInternal,
   input: {
     abortSignal: AbortSignal;
-    causation?: AgentTelemetryCausation;
     model: Model;
     query: string;
     readFileStateSnapshot: ReadFileStateMap;
@@ -191,16 +189,9 @@ async function prefetchProjectMemories(
     traceContext: TraceContext;
   },
 ): Promise<PrefetchedMemory[]> {
-  const telemetry = runtime.agentTelemetry.detached({
-    causation: input.causation,
-    executionKind: "background",
-    operation: "project_memory_recall",
-    targetKind: "project_memory",
-    traceContext: input.traceContext,
-    trigger: "turn",
-  });
+  
 
-  return telemetry.run(async () => {
+  return (async () => {
     try {
       const fileSystem = runtime.fileSystemPort!;
       const manifest = await getMemoryRecallManifest({
@@ -210,8 +201,6 @@ async function prefetchProjectMemories(
         state: input.state,
       });
       if (manifest.every((entry) => input.recalledPathsSnapshot.has(entry.filePath))) {
-        telemetry.setResultType("metadata");
-        telemetry.finishCompleted();
         return [];
       }
 
@@ -234,21 +223,17 @@ async function prefetchProjectMemories(
         signal: input.abortSignal,
       });
       const entryByPath = new Map(entries.map((entry) => [entry.filePath, entry]));
-      telemetry.setResultType("metadata");
-      telemetry.finishCompleted();
       return memories.flatMap((memory) => {
         const entry = entryByPath.get(memory.filePath);
         return entry ? [{ entry, memory }] : [];
       });
     } catch (error) {
       if (input.abortSignal.aborted || isAbortError(error)) {
-        telemetry.finishCancelled("abort_signal");
       } else {
-        telemetry.finishFailed("execute", "internal", error);
       }
       throw error;
     }
-  });
+  })();
 }
 
 function isAbortError(error: unknown): boolean {

@@ -12,14 +12,10 @@ import { uploadBotGroupAttachments } from "./groupAttachmentUpload.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createZCodeAgentConnectionScope } from "#src/zcode-agent/zcodeAgentConnectionScope.js";
 import { existsSync, readFileSync } from "node:fs";
+import { stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  Emitter,
-  Event,
-  emitNetworkTelemetryObservation,
-  type NetworkObservation,
-} from "@zcode/rpc";
+import { Emitter, Event } from "@zcode/rpc";
 import {
   coalesceConsecutiveZCodeAssistants,
   createSessionTraceId,
@@ -223,6 +219,33 @@ type ZCodeTerminalStreamEvent =
   | Extract<ZCodeStreamEvent, { type: "task_error" }>;
 
 const GLM_PROVIDER: ZCodeProvider = ZCODE_AGENT_PROVIDER;
+
+/** 删除单个 task 的遗留会话快照文件（含软删除的 .deleted.json），返回释放字节数。 */
+async function deleteLegacyTaskSessionArtifacts(
+  target: { workspacePath: string; workspaceIdentity?: string },
+  taskId: string,
+): Promise<number> {
+  let freedBytes = 0;
+  const paths = [
+    getLegacyTaskSessionSnapshotPath(target.workspacePath, taskId, target.workspaceIdentity),
+    getLegacyDeletedTaskSessionSnapshotPath(
+      target.workspacePath,
+      taskId,
+      target.workspaceIdentity,
+    ),
+  ];
+  for (const path of paths) {
+    try {
+      const info = await stat(path);
+      await unlink(path);
+      freedBytes += info.size;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      logger.warn(undefined, "[ArchivedTaskPurge] 遗留快照删除失败", { path, error });
+    }
+  }
+  return freedBytes;
+}
 const EMPTY_SLASH_COMMANDS: ZCodeSlashCommand[] = [];
 const logger = createServiceLogger("zcode-task-service");
 const ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion";
@@ -1776,7 +1799,6 @@ export function createZCodeTaskServiceAdapter(
     }
 
     if (event.type === "session.event") {
-      recordAgentModelNetworkTelemetry(event.event);
       if (event.event.type === "turn.started") {
         const payload = asRecord(event.event.payload);
         const inputId = stringValue(payload.inputId);
@@ -3404,6 +3426,101 @@ export function createZCodeTaskServiceAdapter(
         skipped: result.skippedTaskIds.length,
         failed: result.failedTaskIds.length,
         durationMs: Date.now() - startedAt,
+      });
+      return result;
+    },
+
+    async purgeArchivedTasks(params) {
+      const result = {
+        purgedTaskIds: [] as string[],
+        skippedTaskIds: [] as string[],
+        failedTaskIds: [] as string[],
+        freedBytes: 0,
+        deletedMessages: 0,
+        deletedParts: 0,
+      };
+      const requested = [...new Set(params.taskIds)];
+      if (requested.length === 0) return result;
+      const workspace = {
+        workspacePath: params.workspacePath,
+        ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
+      };
+      // 归档 guard：只清理当前仍在归档集合里的会话；期间被恢复/删除的记为 skipped。
+      const archivedTasks = await taskIndexRepo.listTaskMetas({
+        ...workspace,
+        provider: GLM_PROVIDER,
+        archived: true,
+      });
+      const archivedIds = new Set(archivedTasks.map((task) => task.taskId));
+      const targets = requested.filter((taskId) => archivedIds.has(taskId));
+      for (const taskId of requested) {
+        if (!archivedIds.has(taskId)) result.skippedTaskIds.push(taskId);
+      }
+      if (targets.length === 0) return result;
+
+      let purgedSessions: Map<
+        string,
+        { deletedMessages: number; deletedParts: number }
+      >;
+      try {
+        const purged = await options.zcodeAgentService.purgeSessions({
+          ...workspace,
+          sessionIds: targets,
+        });
+        purgedSessions = new Map(
+          purged.sessions.map((entry) => [
+            entry.sessionId,
+            { deletedMessages: entry.deletedMessages, deletedParts: entry.deletedParts },
+          ]),
+        );
+        result.freedBytes += purged.freedBytes;
+      } catch (error) {
+        // 会话库删除失败：保留归档态与索引，允许用户重试。
+        logger.warn(undefined, "[ArchivedTaskPurge] CLI 会话清理失败", {
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          taskIds: targets,
+          error,
+        });
+        result.failedTaskIds.push(...targets);
+        return result;
+      }
+
+      for (const taskId of targets) {
+        const counts = purgedSessions.get(taskId);
+        if (!counts) {
+          result.failedTaskIds.push(taskId);
+          continue;
+        }
+        result.deletedMessages += counts.deletedMessages;
+        result.deletedParts += counts.deletedParts;
+        result.freedBytes += await deleteLegacyTaskSessionArtifacts(workspace, taskId);
+        try {
+          // 内容已删；这里补 tombstone。期间被恢复的会话仍记为已清理（存档已不存在），
+          // 但不再写入 deleted，避免误删用户刚恢复的索引态。
+          const meta = await taskIndexRepo.deleteArchivedTask({ ...workspace, taskId });
+          if (meta) setOverlay({ ...workspace, taskId }, { deleted: true });
+          result.purgedTaskIds.push(taskId);
+        } catch (error) {
+          result.failedTaskIds.push(taskId);
+          logger.warn(undefined, "[ArchivedTaskPurge] 归档 tombstone 写入失败", {
+            workspacePath: params.workspacePath,
+            workspaceIdentity: params.workspaceIdentity,
+            taskId,
+            error,
+          });
+        }
+      }
+      if (result.purgedTaskIds.length > 0) {
+        emitWorkspaceTaskListChanged(workspace, undefined, "task_deleted");
+      }
+      logger.info(undefined, "[ArchivedTaskPurge] batch completed", {
+        workspacePath: params.workspacePath,
+        requested: requested.length,
+        purged: result.purgedTaskIds.length,
+        skipped: result.skippedTaskIds.length,
+        failed: result.failedTaskIds.length,
+        freedBytes: result.freedBytes,
       });
       return result;
     },
@@ -5939,104 +6056,6 @@ function apiRetryFromSessionInfoPayload(
     zcodeApiRetryFromStreamRecoveryPayload(payload) ??
     zcodeApiRetryFromModelNetworkStatusPayload(payload)
   );
-}
-
-function recordAgentModelNetworkTelemetry(event: ZCodeSessionEvent): void {
-  const observation = agentModelNetworkObservationFromEvent(event);
-  if (!observation) {
-    return;
-  }
-  try {
-    emitNetworkTelemetryObservation(observation);
-  } catch (error) {
-    // 修复原因：agent 模型网络遥测属于旁路指标，sink 异常不能影响主会话消息流。
-    logger.warn(undefined, "上报 agent 模型网络遥测失败", error);
-  }
-}
-
-function agentModelNetworkObservationFromEvent(
-  event: ZCodeSessionEvent,
-): NetworkObservation | null {
-  const payload = asRecord(event.payload);
-  const type = stringValue(payload.type);
-  if (type !== "model_request_completed" && type !== "model_request_failed") {
-    return null;
-  }
-  // 修复原因：retryable failed 只是同一次逻辑请求的中间 attempt，最终 completed/failed 会带总 attempt。
-  // 如果这里也计数，会把成功率、失败率和重试率同时放大。
-  if (type === "model_request_failed" && booleanValue(payload.retryable) === true) {
-    return null;
-  }
-
-  const durationMs = Math.max(0, Math.round(numberValue(payload.durationMs) ?? 0));
-  const statusCode = nonNegativeIntegerValue(payload.statusCode);
-  const ok = type === "model_request_completed";
-  return {
-    transport: "http",
-    interface: buildAgentModelNetworkInterface(payload),
-    durationMs,
-    ok,
-    ...(statusCode !== undefined ? { statusCode } : {}),
-    ...(ok ? {} : { errorKind: classifyAgentModelNetworkError(payload, statusCode) }),
-    attempt: positiveIntegerValue(payload.attempt) ?? 1,
-  };
-}
-
-function buildAgentModelNetworkInterface(payload: Record<string, unknown>): string {
-  const providerKind = safeNetworkDimension(stringValue(payload.providerKind)) ?? "unknown";
-  const transport = safeNetworkDimension(stringValue(payload.transport)) ?? "unknown";
-  const base = normalizeAgentModelBaseUrl(stringValue(payload.baseURL));
-  return `zcode_agent.model.${providerKind}.${transport}.${base}`;
-}
-
-function normalizeAgentModelBaseUrl(value: string | undefined): string {
-  if (!value) {
-    return "unknown";
-  }
-  try {
-    const parsed = new URL(value);
-    const pathname = parsed.pathname.replace(/\/+$/u, "") || "/";
-    const safePath = pathname.length > 80 ? `${pathname.slice(0, 80)}...` : pathname;
-    return `${parsed.host}${safePath}`;
-  } catch {
-    return safeNetworkDimension(value, 120) ?? "unknown";
-  }
-}
-
-function safeNetworkDimension(value: string | undefined, maxLength = 48): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  const safe = trimmed.replace(/[?#[\]{}|\\^`"'<>\s]+/gu, "_");
-  return safe.length > maxLength ? `${safe.slice(0, maxLength)}...` : safe;
-}
-
-function classifyAgentModelNetworkError(
-  payload: Record<string, unknown>,
-  statusCode: number | undefined,
-): string {
-  const reason = stringValue(payload.reason);
-  switch (reason) {
-    case "timeout":
-    case "stream_idle_timeout":
-      return "timeout";
-    case "network_error":
-    case "stale_connection":
-      return "connection_reset";
-    case "proxy_error":
-      return "proxy_error";
-    case "tls_error":
-      return "tls_error";
-    default:
-      if (statusCode !== undefined && statusCode >= 500) {
-        return "server_error";
-      }
-      if (statusCode !== undefined && statusCode >= 400) {
-        return "client_error";
-      }
-      return "other";
-  }
 }
 
 type ContextUsageUpdate = Pick<

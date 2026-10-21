@@ -7,16 +7,6 @@ import {
   type UsageEntitlementSnapshot,
 } from "@zcode/shared";
 
-const reportAppTelemetryEventMock = vi.fn(async () => {});
-const resolveProviderTelemetryLabelMock = vi.fn((providerId: string) =>
-  providerId === ZAI_PROVIDER_ID ? "z.ai" : "bigmodel",
-);
-
-vi.mock("@/lib/appTelemetry.js", () => ({
-  reportAppTelemetryEvent: reportAppTelemetryEventMock,
-  resolveProviderTelemetryLabel: resolveProviderTelemetryLabelMock,
-}));
-
 vi.mock("@/logger.js", () => ({
   logger: {
     info: vi.fn(),
@@ -27,8 +17,6 @@ vi.mock("@/logger.js", () => ({
 
 describe("handleOAuthCallbackSuccess", () => {
   beforeEach(() => {
-    reportAppTelemetryEventMock.mockClear();
-    resolveProviderTelemetryLabelMock.mockClear();
   });
 
   it("应用登录回调会更新 user、清理错误并上报登录埋点", async () => {
@@ -39,7 +27,6 @@ describe("handleOAuthCallbackSuccess", () => {
     const refreshLatestModelProviderFamilySelection = vi.fn(async () => null);
     const setProviderFamilyDomain = vi.fn(async () => {});
     const platform = {
-      reportTelemetryEvent: vi.fn(async () => {}),
     };
 
     await handleOAuthCallbackSuccess({
@@ -69,7 +56,6 @@ describe("handleOAuthCallbackSuccess", () => {
     expect(setProviderFamilyDomain).toHaveBeenCalledWith(BIGMODEL_PROVIDER_ID);
     expect(refreshLatestModelProviderFamilySelection).toHaveBeenCalledWith(BIGMODEL_PROVIDER_ID);
     expect(refreshProviderState).toHaveBeenCalledOnce();
-    expect(reportAppTelemetryEventMock).toHaveBeenCalledTimes(1);
   });
 
   it("Provider Family 选择校正失败不应阻断 OAuth 登录成功态", async () => {
@@ -82,7 +68,6 @@ describe("handleOAuthCallbackSuccess", () => {
       throw new Error("selection failed");
     });
     const platform = {
-      reportTelemetryEvent: vi.fn(async () => {}),
     };
 
     await expect(
@@ -114,7 +99,6 @@ describe("handleOAuthCallbackSuccess", () => {
     expect(setProviderFamilyDomain).toHaveBeenCalledWith(BIGMODEL_PROVIDER_ID);
     expect(refreshLatestModelProviderFamilySelection).toHaveBeenCalledWith(BIGMODEL_PROVIDER_ID);
     expect(refreshProviderState).toHaveBeenCalledOnce();
-    expect(reportAppTelemetryEventMock).toHaveBeenCalledTimes(1);
   });
 
   it("Team Plan 选择收敛后统一刷新 Provider Runtime", async () => {
@@ -139,7 +123,6 @@ describe("handleOAuthCallbackSuccess", () => {
     });
     const setProviderFamilyDomain = vi.fn(async () => {});
     const platform = {
-      reportTelemetryEvent: vi.fn(async () => {}),
     };
 
     await handleOAuthCallbackSuccess({
@@ -181,7 +164,6 @@ describe("handleOAuthCallbackSuccess", () => {
     });
     const setProviderFamilyDomain = vi.fn(async () => {});
     const platform = {
-      reportTelemetryEvent: vi.fn(async () => {}),
     };
 
     await handleOAuthCallbackSuccess({
@@ -223,7 +205,6 @@ describe("handleOAuthCallbackSuccess", () => {
     });
     const setProviderFamilyDomain = vi.fn(async () => {});
     const platform = {
-      reportTelemetryEvent: vi.fn(async () => {}),
     };
 
     await handleOAuthCallbackSuccess({

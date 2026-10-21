@@ -52,7 +52,6 @@ const agent = {
     ].map((method) => [method, (p: unknown) => harness.v4(method, p)]),
   ),
   onDynamicConversationFrame: () => (handler: any) => subscribe("frame", handler),
-  onDynamicLocalTtftFacts: () => (handler: any) => subscribe("ttft", handler),
   onAgentRuntimeRestarted: (handler: any) => subscribe("restart", handler),
   onAgentRuntimeLifecycle: (handler: any) => subscribe("lifecycle", handler),
 };

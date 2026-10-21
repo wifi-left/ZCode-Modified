@@ -36,6 +36,30 @@ export function createMutableConversationSnapshotAccumulator(
 
 // row.delta 只允许作用于流式态行（§4.4.4 不变量，服务端保证）。
 // 本函数按协议语义实现为：路径不存在/行不存在时 no-op（§4.3：patch 命中未加载行 = no-op）。
+//
+// 长会话热路径：row.delta/row.upserted 不变更 rowId 顺序，纯 apply 会复制 window 但
+// 索引关系不变。把 rowId → index 表挂在 window 数组上跨副本复用，避免每个流式帧
+// 都对新窗口做一次 O(N) findIndex（客户端每秒几十帧时这是持续的主线程开销）。
+const rowIndexByWindow = new WeakMap<
+  readonly ConversationRow[],
+  ReadonlyMap<number, number>
+>();
+
+function readRowIndexMap(
+  window: readonly ConversationRow[],
+): ReadonlyMap<number, number> {
+  const cached = rowIndexByWindow.get(window);
+  if (cached) return cached;
+  const index = new Map<number, number>();
+  window.forEach((row, position) => index.set(row.rowId, position));
+  rowIndexByWindow.set(window, index);
+  return index;
+}
+
+function findRowIndex(window: readonly ConversationRow[], rowId: number): number {
+  return readRowIndexMap(window).get(rowId) ?? -1;
+}
+
 function appendToRow(
   row: ConversationRow,
   path: StreamablePath,
@@ -85,13 +109,13 @@ export function applyConversationDelta(
         },
       };
     case "row.upserted": {
-      const index = snapshot.rows.window.findIndex(
-        (row) => row.rowId === delta.row.rowId,
-      );
+      const index = findRowIndex(snapshot.rows.window, delta.row.rowId);
       // §4.3：未加载 rowId = no-op（被逐出的行只能经 rows/range 取回）。
       if (index === -1) return snapshot;
       const window = [...snapshot.rows.window];
       window[index] = delta.row;
+      // 替换行不改变 rowId 顺序，索引表可直接被新窗口复用。
+      rowIndexByWindow.set(window, readRowIndexMap(snapshot.rows.window));
       return { ...snapshot, rows: { ...snapshot.rows, window } };
     }
     case "row.removed": {
@@ -117,13 +141,12 @@ export function applyConversationDelta(
       };
     }
     case "row.delta": {
-      const index = snapshot.rows.window.findIndex(
-        (row) => row.rowId === delta.rowId,
-      );
+      const index = findRowIndex(snapshot.rows.window, delta.rowId);
       const target = snapshot.rows.window[index];
       if (index === -1 || target === undefined) return snapshot;
       const window = [...snapshot.rows.window];
       window[index] = appendToRow(target, delta.path, delta.append);
+      rowIndexByWindow.set(window, readRowIndexMap(snapshot.rows.window));
       return { ...snapshot, rows: { ...snapshot.rows, window } };
     }
     case "state.updated":

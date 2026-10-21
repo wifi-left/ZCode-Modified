@@ -37,6 +37,14 @@ function mount(count = 2) {
       skippedTaskIds: [],
       failedTaskIds: [],
     })),
+    purgeArchivedTasks: vi.fn(async ({ taskIds }: { taskIds: string[] }) => ({
+      purgedTaskIds: taskIds,
+      skippedTaskIds: [],
+      failedTaskIds: [],
+      freedBytes: 2048,
+      deletedMessages: taskIds.length * 2,
+      deletedParts: taskIds.length * 3,
+    })),
   };
   const onDeleted = vi.fn();
   const view = render(
@@ -168,5 +176,114 @@ describe("归档更多菜单", () => {
     await waitFor(() => expect(screen.queryByText("Web archived task")).toBeNull());
     expect(within(toolbar).getByRole("button").hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("status").textContent).toBe("taskList.deleteAllArchivedResult");
+  });
+});
+describe("归档存档清理", () => {
+  function mountCleanup() {
+    const toolbar = document.createElement("div");
+    document.body.append(toolbar);
+    const archived = (taskId: string) => ({
+      taskId,
+      title: `Task ${taskId}`,
+      workspacePath: "/project",
+      createdAt: 1_000,
+      updatedAt: 2_000,
+    });
+    const service = {
+      listArchivedTasks: vi.fn(async () => [archived("one"), archived("two")]),
+      deleteArchivedTasks: vi.fn(async ({ taskIds }: { taskIds: string[] }) => ({
+        deletedTaskIds: taskIds,
+        skippedTaskIds: [],
+        failedTaskIds: [],
+      })),
+      purgeArchivedTasks: vi.fn(async ({ taskIds }: { taskIds: string[] }) => ({
+        purgedTaskIds: taskIds,
+        skippedTaskIds: [],
+        failedTaskIds: [],
+        freedBytes: 4096,
+        deletedMessages: taskIds.length,
+        deletedParts: taskIds.length,
+      })),
+    };
+    const onDeleted = vi.fn();
+    render(
+      createElement(DeleteAllArchivedTasksButton, {
+        count: 2,
+        disabled: false,
+        actionsContainer: toolbar,
+        workspaces: [{ workspacePath: "/project", label: "Project", service }],
+        onDeleted,
+      }),
+    );
+    return { toolbar, service, onDeleted };
+  }
+
+  async function openCleanup() {
+    fireEvent.keyDown(screen.getByRole("button", { name: "taskList.archivedActions" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "taskList.cleanupArchivedMenu" }));
+    return screen.findByTestId("archived-cleanup-dialog");
+  }
+
+  it("只清理勾选的会话并报告释放空间", async () => {
+    const { service, onDeleted } = mountCleanup();
+    confirm.mockResolvedValueOnce(true);
+    await openCleanup();
+    await waitFor(() => expect(service.listArchivedTasks).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByTestId("archived-cleanup-checkbox-one"));
+    expect(screen.getByTestId("archived-cleanup-count").textContent).toBe(
+      "taskList.cleanupArchivedSelected:1",
+    );
+    fireEvent.click(screen.getByTestId("archived-cleanup-confirm"));
+
+    await waitFor(() =>
+      expect(service.purgeArchivedTasks).toHaveBeenCalledExactlyOnceWith({
+        workspacePath: "/project",
+        workspaceIdentity: undefined,
+        taskIds: ["one"],
+      }),
+    );
+    expect(onDeleted).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ taskId: "one" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe("taskList.cleanupArchivedResult"),
+    );
+    // 已清理项从列表移除，剩余项仍可再次勾选清理。
+    await waitFor(() =>
+      expect(screen.queryByTestId("archived-cleanup-checkbox-one")).toBeNull(),
+    );
+    expect(screen.getByTestId("archived-cleanup-checkbox-two")).toBeTruthy();
+  });
+
+  it("搜索后全选只作用于过滤结果", async () => {
+    const { service } = mountCleanup();
+    confirm.mockResolvedValueOnce(true);
+    await openCleanup();
+    await waitFor(() => expect(service.listArchivedTasks).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByTestId("archived-cleanup-search"), {
+      target: { value: "two" },
+    });
+    fireEvent.click(screen.getByTestId("archived-cleanup-toggle-all"));
+    fireEvent.click(screen.getByTestId("archived-cleanup-confirm"));
+
+    await waitFor(() =>
+      expect(service.purgeArchivedTasks).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ taskIds: ["two"] }),
+      ),
+    );
+  });
+
+  it("未勾选时确认按钮禁用且不发起清理", async () => {
+    const { service } = mountCleanup();
+    await openCleanup();
+    await waitFor(() => expect(service.listArchivedTasks).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByTestId("archived-cleanup-confirm").hasAttribute("disabled"),
+    ).toBe(true);
+    expect(service.purgeArchivedTasks).not.toHaveBeenCalled();
   });
 });

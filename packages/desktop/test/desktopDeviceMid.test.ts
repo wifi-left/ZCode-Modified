@@ -75,47 +75,18 @@ describe("ensureDesktopDeviceMidSync", () => {
     expect(state.dailyActiveInFlight).toEqual({ date: "x", startedAt: 1 });
   });
 
-  it("与数仓侧（telemetryCore）读到同一个 device_mid", async () => {
-    const dir = makeTempDir();
-    const generated = ensureDesktopDeviceMidSync({
-      configDir: dir,
-      createId: () => "shared-device-uuid",
-    });
-
-    // telemetryCore 用 homeDir 定位 state 文件：{homeDir}/.zcode/v2/telemetry-state.json
-    // 让该路径正好等于本测试的 configDir，验证两侧读同一字段。
+  it("与 services 侧 ensureDeviceMid 读到同一个 device_mid", async () => {
+    // services 侧用 homeDir 定位 state 文件：{homeDir}/.zcode/v2/telemetry-state.json
     const home = makeTempDir();
     const sharedDir = join(home, ".zcode", "v2");
     mkdirSync(sharedDir, { recursive: true });
-    writeFileSync(
-      join(sharedDir, "telemetry-state.json"),
-      JSON.stringify({ deviceMid: generated }),
-      "utf-8",
-    );
-
-    const { createTelemetryCore } = await import("@zcode/services/node");
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
-    const service = createTelemetryCore({
-      homeDir: home,
-      fetchImpl: fetchMock,
-      randomUUID: () => "unrelated-event-id",
-    }) as {
-      reportAppLaunch(input: {
-        clientTimezone: string;
-        clientLanguage: string;
-        screenResolution: string;
-      }): Promise<void>;
-    };
-
-    await service.reportAppLaunch({
-      clientTimezone: "Asia/Shanghai",
-      clientLanguage: "zh-CN",
-      screenResolution: "3024x1964",
+    const generated = ensureDesktopDeviceMidSync({
+      configDir: sharedDir,
+      createId: () => "shared-device-uuid",
     });
 
-    // 遥测已硬关闭：报表不再发出请求（因此不会有携带 device_mid 的 body），
-    // 但设备身份仍必须与 desktop 侧读到同一份 state 里的同一个值。
-    expect(fetchMock).not.toHaveBeenCalled();
+    const { ensureDeviceMid } = await import("@zcode/services/node");
+    await expect(ensureDeviceMid({ homeDir: home })).resolves.toBe(generated);
     expect(
       JSON.parse(readFileSync(join(sharedDir, "telemetry-state.json"), "utf-8")).deviceMid,
     ).toBe(generated);

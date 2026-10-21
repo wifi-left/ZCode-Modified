@@ -5,7 +5,6 @@ import type { MessagePortMain, UtilityProcess as ElectronUtilityProcess } from "
 import {
   buildRemoteWorkspaceIdentity,
   buildRemoteEnvironmentKey,
-  buildSshRemoteHostKey,
   HostMessageTypes,
   HostResponseTypes,
   hostResponseMessageSchema,
@@ -17,11 +16,6 @@ import {
   type WindowHostRemoteWorkspaceDescriptor,
   type WebRemoteControlFailure,
 } from "@zcode/shared";
-import type {
-  RemoteConnectionStats,
-  RemoteDisconnectReason,
-  RemoteGaugeTransition,
-} from "./desktopRemoteUsageArmsTelemetry.js";
 import type { RemoteAssetDirs } from "./desktopRuntimeEnv.js";
 import { ProviderProvisioningEnvironmentCoordinator } from "./providerProvisioningEnvironmentCoordinator.js";
 
@@ -34,7 +28,6 @@ interface PendingConnect {
   requestId: string;
   webContentsId: number;
   win: BrowserWindow;
-  remoteUsageTelemetryEligible: boolean;
   resolve: (sessionId: string) => void;
   reject: (error: Error) => void;
 }
@@ -55,7 +48,6 @@ interface RemoteAttachmentRoute {
   attachmentState: "attachable" | "closed";
   connectedAtMonotonicMs: number;
   connectFinalized: boolean;
-  remoteUsageTelemetryEligible: boolean;
   providerProvisioningDispose?: () => void;
 }
 
@@ -112,19 +104,6 @@ function isSameRemoteTarget(left: RemoteTarget, right: RemoteTarget): boolean {
   }
 }
 
-function buildRemoteTargetTelemetryKey(target: RemoteTarget): string {
-  switch (target.kind) {
-    case "ssh":
-      return `ssh:${buildSshRemoteHostKey(target)}`;
-    case "wsl":
-      return `wsl:${target.distro?.trim() || "default"}\0${target.user?.trim() ?? ""}`;
-    case "docker":
-      return `docker:${target.container}`;
-    case "server":
-      return `server:${normalizeServerRemoteUrlForComparison(target.url)}`;
-  }
-}
-
 function closeMessagePort(port: MessagePortMain | undefined): void {
   if (!port) return;
   try {
@@ -147,17 +126,6 @@ export function createRemoteWorkspaceSessionManager(options: {
   ) => Promise<Extract<RemoteTarget, { kind: "wsl" }>>;
   createMessageChannel?: () => { port1: MessagePortMain; port2: MessagePortMain };
   rendererAttachmentReadyTimeoutMs?: number;
-  reportRemoteConnectionStateChanged?: (params: {
-    rendererId: number;
-    remoteKind: RemoteTarget["kind"];
-    transition: Exclude<RemoteGaugeTransition, "none">;
-  }) => void;
-  reportRemoteDisconnect?: (params: {
-    rendererId: number;
-    remoteKind: RemoteTarget["kind"];
-    disconnectReason: RemoteDisconnectReason;
-    durationMs: number;
-  }) => void;
   monotonicNowMs?: () => number;
   webRemoteControlManagerRef: {
     current: {
@@ -372,17 +340,6 @@ export function createRemoteWorkspaceSessionManager(options: {
     );
     if (!route.connectFinalized) {
       route.connectFinalized = true;
-      if (route.remoteUsageTelemetryEligible) {
-        try {
-          options.reportRemoteConnectionStateChanged?.({
-            rendererId: route.webContentsId,
-            remoteKind: route.descriptor.target.kind,
-            transition: "connected",
-          });
-        } catch (error) {
-          options.logger.warn("[remote-usage-arms] connected reporter failed", { error });
-        }
-      }
     }
     pending.resolve();
   }
@@ -410,7 +367,6 @@ export function createRemoteWorkspaceSessionManager(options: {
       attachmentState: "attachable",
       connectedAtMonotonicMs: monotonicNowMs(),
       connectFinalized: false,
-      remoteUsageTelemetryEligible: pending.remoteUsageTelemetryEligible,
     };
     routesBySessionId.set(descriptor.remoteSessionId, route);
     const environmentKey = buildRemoteEnvironmentKey(descriptor.target);
@@ -500,36 +456,11 @@ export function createRemoteWorkspaceSessionManager(options: {
   }
 
   function retireActiveRoute(
-    route: RemoteAttachmentRoute,
-    reason: RemoteDisconnectReason,
+    _route: RemoteAttachmentRoute,
+    _reason: string,
     mutate: () => void,
   ): void {
-    const wasActive =
-      route.remoteUsageTelemetryEligible &&
-      route.attachmentState === "attachable" &&
-      route.connectFinalized;
     mutate();
-    if (!wasActive) return;
-
-    const common = {
-      rendererId: route.webContentsId,
-      remoteKind: route.descriptor.target.kind,
-    };
-    try {
-      options.reportRemoteConnectionStateChanged?.({ ...common, transition: reason });
-    } catch (error) {
-      // telemetry 是连接生命周期的旁路，不能因 reporter 异常回滚 route 退出状态。
-      options.logger.warn("[remote-usage-arms] disconnect gauge reporter failed", { error });
-    }
-    try {
-      options.reportRemoteDisconnect?.({
-        ...common,
-        disconnectReason: reason,
-        durationMs: Math.max(0, Math.round(monotonicNowMs() - route.connectedAtMonotonicMs)),
-      });
-    } catch (error) {
-      options.logger.warn("[remote-usage-arms] disconnect reporter failed", { error });
-    }
   }
 
   function handleClosed(
@@ -702,7 +633,6 @@ export function createRemoteWorkspaceSessionManager(options: {
     target: RemoteTarget,
     requestId?: string,
     context?: RemoteWorkspaceSessionContext,
-    lifecycle?: { remoteUsageTelemetryEligible?: boolean },
   ): Promise<string> {
     if (appShutdownStarted) {
       throw new Error("应用正在退出，无法创建远程工作区连接");
@@ -735,7 +665,6 @@ export function createRemoteWorkspaceSessionManager(options: {
         requestId: resolvedRequestId,
         webContentsId: win.webContents.id,
         win,
-        remoteUsageTelemetryEligible: lifecycle?.remoteUsageTelemetryEligible ?? false,
         resolve,
         reject,
       });
@@ -804,21 +733,6 @@ export function createRemoteWorkspaceSessionManager(options: {
         });
       }
     }
-  }
-
-  function getRemoteConnectionStats(): RemoteConnectionStats {
-    const activeRoutes = Array.from(routesBySessionId.values()).filter(
-      (route) =>
-        route.remoteUsageTelemetryEligible &&
-        route.attachmentState === "attachable" &&
-        route.connectFinalized,
-    );
-    return {
-      activeSessionCount: activeRoutes.length,
-      activeTargetCount: new Set(
-        activeRoutes.map((route) => buildRemoteTargetTelemetryKey(route.descriptor.target)),
-      ).size,
-    };
   }
 
   function disposeRemoteWorkspaceSession(sessionId: string, _reason?: string): void {
@@ -1036,7 +950,6 @@ export function createRemoteWorkspaceSessionManager(options: {
     reattachRemoteWorkspaceSessionsForWindow,
     hasRemoteWorkspaceSessionForTarget,
     createBotRemoteWorkspaceRuntimePort,
-    getRemoteConnectionStats,
     disposeRemoteWorkspaceSession,
     disposeRemoteWorkspaceSessionsForWindow,
     disposeAllAndWaitForAppShutdown: async (_reason: string) => {

@@ -1,6 +1,5 @@
 import type { AiSdkModelAdapter } from "@zcode/adapters/model";
 import type {
-  AgentTelemetryRuntimeOwner,
   AutomationPort,
   BackgroundTaskCancelResult,
   BrowserControlPort,
@@ -162,7 +161,6 @@ export interface ZCodeAppOptions {
   configuredDefaultModelSelection?: ModelSelection;
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
-  telemetryOwner?: AgentTelemetryRuntimeOwner;
   providerEndpointRoutingPort?: ProviderEndpointRoutingPort;
   /**
    * provider runtime headers 端口：主 runtime 每次调用报自己的会话；child runtime 一律向父

@@ -54,7 +54,6 @@ describe("off-peak 端到端集成（进程内 mock 网关全链路）", () => {
         providerId: "account:bigmodel-individual-coding-plan",
         selectedConnectionKey: "coding-plan:account:bigmodel-individual-coding-plan",
       }),
-      resolveTelemetryProviderName: async () => "127.0.0.1",
       resolveModelSelection: async ({ modelId, reasoningLevel }) => ({
         ok: true as const,
         selection: {

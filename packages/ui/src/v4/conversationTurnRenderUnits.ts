@@ -1,3 +1,4 @@
+/* oxlint-disable eslint(max-lines) -- 轮次渲染单元的构建/归一化/折叠边界集中在同一热路径文件，拆分会打散语义对照。 */
 import type {
   ConversationTurnRenderUnit,
   BuildConversationTurnRenderUnitsOptions,
@@ -33,6 +34,16 @@ export type {
   ConversationTurnWorkStatus,
 } from "@/v4/conversationTurnWorkSegments.js";
 export { resolveNextHighspeedExpiryMs } from "@/highspeed/highspeedConversationRows.js";
+import {
+  buildTurnRenderUnitCacheKey,
+  pruneTurnRenderUnitsCache,
+  readCachedTurnRenderUnit,
+  type ConversationTurnRenderUnitsCache,
+} from "@/v4/conversationTurnRenderUnitsCache.js";
+export {
+  createConversationTurnRenderUnitsCache,
+  type ConversationTurnRenderUnitsCache,
+} from "@/v4/conversationTurnRenderUnitsCache.js";
 
 interface DraftTurnRenderUnit {
   key: string;
@@ -399,6 +410,7 @@ function normalizeRenderUnitPosition(
 export function buildConversationTurnRenderUnits(
   rows: readonly ConversationRow[],
   options: BuildConversationTurnRenderUnitsOptions = {},
+  cache?: ConversationTurnRenderUnitsCache,
 ): ConversationTurnRenderUnit[] {
   const units: DraftTurnRenderUnit[] = [];
   const unitByTurnId = new Map<string, DraftTurnRenderUnit>();
@@ -432,9 +444,30 @@ export function buildConversationTurnRenderUnits(
     unit.assistantWorkRows.push(row);
   }
 
-  const materializedUnits = units.map((unit, index) =>
-    materializeDraftUnit(unit, index, units.length, options),
-  );
+  const seenTurnIds = new Set<string>();
+  const materializedUnits = units.map((unit, index) => {
+    const materialized = readCachedTurnRenderUnit(
+      cache,
+      {
+        turnId: unit.turnId,
+        header: unit.header,
+        rows: unit.orderedRows,
+        ...buildTurnRenderUnitCacheKey({
+          rows: unit.orderedRows,
+          index,
+          total: units.length,
+          isRunning: resolveTurnRunning(unit, options),
+          nowMs: options.nowMs,
+          sessionPhase: options.sessionPhase,
+          pluginUiPinResolver: options.pluginUiPinResolver,
+        }),
+      },
+      () => materializeDraftUnit(unit, index, units.length, options),
+    );
+    seenTurnIds.add(unit.turnId);
+    return materialized;
+  });
+  pruneTurnRenderUnitsCache(cache, seenTurnIds);
   const keptUnits = materializedUnits.filter(shouldKeepRenderUnit);
   const normalizedUnits = keptUnits.map((unit, index) =>
     normalizeRenderUnitPosition(unit, index, keptUnits.length, options),

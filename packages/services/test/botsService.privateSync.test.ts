@@ -335,6 +335,28 @@ describe("private task continuous delivery", () => {
       h.service.retryPrivateDelivery!({ botId: h.actor.botId, deliveryId: id }),
     ).rejects.toThrow("no longer available");
   });
+  it("reports a task failure once and resets the private context to draft", async () => {
+    const h = setup();
+    await h.service.handleInboundMessage({
+      botId: "telegram-1",
+      text: "执行一个会失败的任务",
+      actor: h.actor,
+    });
+    await h.emit("task_run_started", "run-fail", {
+      inputOrigin: "desktop",
+      startedAt: Date.now(),
+    });
+    await h.emit("task_error", "run-fail", { error: "boom" });
+
+    const state = (await h.repo.readState()).bots["telegram-1"]!;
+    expect(state.activeTaskId).toBeNull();
+    expect(state.mode).toBe("draft");
+    const failedMessages = h.sent.filter((item) =>
+      String(item.body.text ?? "").includes("任务失败"),
+    );
+    expect(failedMessages).toHaveLength(1);
+    expect(String(failedMessages[0]?.body.text)).toContain("已自动重置");
+  });
   it("records retry state for failures delivered inside a workspace mirror batch", async () => {
     const h = setup();
     await h.service.saveConfig(await h.repo.readConfig());

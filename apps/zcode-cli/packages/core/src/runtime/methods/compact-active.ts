@@ -80,12 +80,6 @@ export async function compactActiveConversation(
   events: SessionEvent[],
   options: {
     abortSignal?: AbortSignal;
-    compactContextTelemetry?: {
-      inputTokens: number;
-      policyContextWindowTokens: number;
-      thresholdTokens?: number;
-      tokenSource: "estimate" | "provider_usage";
-    };
     autoCompactThreshold?: number;
     compactReason?: CompactReason;
     initialPromptTooLongCause?: unknown;
@@ -104,21 +98,8 @@ export async function compactActiveConversation(
 }> {
   const trigger = options.trigger ?? CompactTrigger.Manual;
   const phase = options.phase ?? defaultCompactPhaseForTrigger(trigger);
-  const compactTelemetry = this.agentTelemetry.compaction({
-    trigger,
-    phase,
-    maxAttempts: AUTO_COMPACT_MAX_ATTEMPTS,
-    modelMode: this.config.modelStreaming === "off" ? "non_streaming" : "streaming",
-    policyContextWindowTokens: options.compactContextTelemetry?.policyContextWindowTokens,
-    thresholdTokens: options.compactContextTelemetry?.thresholdTokens,
-    tokenSource: options.compactContextTelemetry?.tokenSource,
-    traceContext: turnTraceContext,
-  });
-  if (options.compactContextTelemetry) {
-    // Auto 复用策略决策，Reactive 复用 overflow 路径 activeMessages；其他 trigger 不额外投影。
-    compactTelemetry.setInputTokens(options.compactContextTelemetry.inputTokens);
-  }
-  return compactTelemetry.run(async () => {
+  
+  return (async () => {
     try {
       const result = await compactActiveConversationImpl.call(
         this,
@@ -127,18 +108,14 @@ export async function compactActiveConversation(
         events,
         options,
       );
-      compactTelemetry.setOutputTokens(result.tokenCount);
-      compactTelemetry.finishCompleted();
       return result;
     } catch (error) {
       if (isTurnCancellationError(error, options.abortSignal)) {
-        compactTelemetry.finishCancelled("abort_signal");
       } else {
-        compactTelemetry.finishFailed("unhandled", "unknown", error);
       }
       throw error;
     }
-  });
+  })();
 }
 
 async function compactActiveConversationImpl(
@@ -148,12 +125,6 @@ async function compactActiveConversationImpl(
   events: SessionEvent[],
   options: {
     abortSignal?: AbortSignal;
-    compactContextTelemetry?: {
-      inputTokens: number;
-      policyContextWindowTokens: number;
-      thresholdTokens?: number;
-      tokenSource: "estimate" | "provider_usage";
-    };
     autoCompactThreshold?: number;
     compactReason?: CompactReason;
     initialPromptTooLongCause?: unknown;

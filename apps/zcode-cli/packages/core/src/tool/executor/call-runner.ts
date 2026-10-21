@@ -1,12 +1,10 @@
 import {
-  type AgentTelemetryErrorCategory,
   CoreErrorType,
   createChildTraceContext,
   createCoreError,
   createRootTraceContext,
   getCurrentTraceContext,
   traceContextToLogContext,
-  type ToolExecutionSpanWriter,
   type SessionEvent,
 } from "@zcode/contracts";
 import {
@@ -50,7 +48,6 @@ import {
   resolveTimeoutMs,
 } from "./timeout.js";
 import { createToolModelStatusSink, withDefaultToolModelStatusSink } from "./model-status-sink.js";
-import { runToolCallWithTelemetry } from "./telemetry.js";
 import {
   withAutomationCreateLimitTurnStop,
   withPlanExitDeniedTurnStop,
@@ -76,12 +73,7 @@ export async function executeToolCall(
     entry && toolCall.name !== entry.metadata.name
       ? { ...toolCall, name: entry.metadata.name }
       : toolCall;
-  // 隐私与基数边界：未注册工具名来自模型输出，不能假定是受控枚举。
-  // 业务错误仍保留真实名称供模型自修复，远端 Trace 统一落入固定 unknown 桶。
-  const telemetryToolCall = entry ? canonicalToolCall : { ...toolCall, name: "unknown" };
-  return runToolCallWithTelemetry(deps, telemetryToolCall, options, (telemetry) =>
-    executeToolCallImpl(deps, backgroundTasks, toolCall, totalStartedAt, options, telemetry),
-  );
+  return executeToolCallImpl(deps, backgroundTasks, toolCall, totalStartedAt, options);
 }
 
 async function executeToolCallImpl(
@@ -90,7 +82,6 @@ async function executeToolCallImpl(
   toolCall: ExecutableToolCall,
   totalStartedAt: number,
   options?: ToolExecuteOptions,
-  telemetry?: ToolExecutionSpanWriter,
 ): Promise<ToolExecutionResult> {
   const parentTraceContext =
     options?.traceContext ??
@@ -150,7 +141,6 @@ async function executeToolCallImpl(
       toolCallId: toolCall.id,
       toolName: toolCall.name,
     });
-    telemetry?.finishFailed("lookup", "configuration", result.error);
     return result;
   }
 
@@ -183,7 +173,6 @@ async function executeToolCallImpl(
         canonicalToolCall,
         createCoreError(CoreErrorType.ToolCancelled, "Tool execution cancelled"),
       );
-      telemetry?.finishCancelled("abort_signal");
       return result;
     }
 
@@ -204,7 +193,6 @@ async function executeToolCallImpl(
       // 只把失败回灌模型，没有发布 ToolCallError，V4 tool row 因而在整个 turn 里停在
       // inputStreaming（CreateWorkflow 卡持续显示「正在编写工作流」），模型重试后又叠一张。
       await emitToolCallError(deps, canonicalToolCall.id, traceContext, turnId, result.error);
-      telemetry?.finishFailed("validation", "parse", result.error);
       return result;
     }
 
@@ -221,7 +209,6 @@ async function executeToolCallImpl(
       await emitToolCallError(deps, canonicalToolCall.id, traceContext, turnId, result.error);
       // 工具专属校验以普通失败结果返回，不走 handler 执行的 try/catch 失败收口。
       // 先发出 ToolCallError 更新工具行，再显式标记遥测失败，避免被记录为 abandoned。
-      telemetry?.finishFailed("validation", "parse", result.error);
       return result;
     }
 
@@ -241,7 +228,6 @@ async function executeToolCallImpl(
           createToolHandlerFailureError(canonicalToolCall, resolution),
         );
         await emitToolCallError(deps, canonicalToolCall.id, traceContext, turnId, result.error);
-        telemetry?.finishFailed("validation", "parse", result.error);
         return result;
       }
       executionInput = resolution.input;
@@ -280,8 +266,6 @@ async function executeToolCallImpl(
         ),
         preToolHookResult.additionalContexts,
       );
-      telemetry?.setPermissionDecision("denied");
-      telemetry?.finishDenied("policy_denied");
       return result;
     }
     if (preToolHookResult.updatedInput !== undefined) {
@@ -300,7 +284,6 @@ async function executeToolCallImpl(
           createErrorResult(canonicalToolCall, hookInputValidation),
           preToolHookResult.additionalContexts,
         );
-        telemetry?.finishFailed("validation", "parse", result.error);
         return result;
       }
     }
@@ -318,7 +301,6 @@ async function executeToolCallImpl(
       mode,
       traceContext,
       options?.signal,
-      telemetry,
       {
         mode,
         bashShellSelection,
@@ -340,13 +322,7 @@ async function executeToolCallImpl(
         preToolHookResult.additionalContexts,
       );
       if (result.error?.type === CoreErrorType.PermissionDenied) {
-        telemetry?.finishDenied("user_denied");
       } else {
-        telemetry?.finishFailed(
-          "permission",
-          errorCategoryForToolError(result.error?.type),
-          result.error,
-        );
       }
       return result;
     }
@@ -402,7 +378,6 @@ async function executeToolCallImpl(
       });
       const context: ToolExecutionContext = {
         toolCallId: canonicalToolCall.id,
-        telemetry,
         automationTurn: options?.automationTurn,
         offPeakTurn: options?.offPeakTurn,
         traceContext,
@@ -583,10 +558,6 @@ async function executeToolCallImpl(
         toolCallId: canonicalToolCall.id,
         toolName: canonicalToolCall.name,
       });
-
-      telemetry?.setOutputBytes(serialization.returnedBytes);
-      telemetry?.setOutputTruncated(serialization.truncated);
-      telemetry?.finishCompleted();
       return result;
     } catch (error) {
       const durationMs = Date.now() - startTime;
@@ -653,15 +624,7 @@ async function executeToolCallImpl(
       );
 
       if (options?.signal?.aborted || result.error?.type === CoreErrorType.ToolCancelled) {
-        telemetry?.finishCancelled("abort_signal");
       } else {
-        telemetry?.finishFailed(
-          failureStage,
-          errorCategoryForToolError(result.error?.type),
-          // 原始异常只交给 Telemetry 做受控脱敏；result.error 是面向业务协议重新包装后的错误，
-          // 不能覆盖 Trace 中用于定位根因的 source message/type/code。
-          error,
-        );
       }
       return result;
     } finally {
@@ -700,25 +663,6 @@ function isEmptyToolName(toolName: string): boolean {
   return toolName.trim().length === 0;
 }
 
-function errorCategoryForToolError(type: string | undefined): AgentTelemetryErrorCategory {
-  switch (type) {
-    case CoreErrorType.ConfigurationError:
-    case CoreErrorType.ToolNotFound:
-      return "configuration";
-    case CoreErrorType.PermissionDenied:
-    case CoreErrorType.PermissionEscalation:
-    case CoreErrorType.PermissionTimeout:
-      return "permission";
-    case CoreErrorType.InvalidInput:
-      return "parse";
-    case CoreErrorType.ToolCancelled:
-      return "cancelled";
-    case CoreErrorType.ToolTimeout:
-      return "timeout";
-    default:
-      return "internal";
-  }
-}
 
 function appendPreToolAdditionalContextsToErrorResult(
   result: ToolExecutionResult,

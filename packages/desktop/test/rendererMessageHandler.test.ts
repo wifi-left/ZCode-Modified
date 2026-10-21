@@ -50,7 +50,6 @@ vi.stubGlobal("window", {
     registerOAuthState: vi.fn(),
     onOAuthCallback: vi.fn(() => () => {}),
     notifyRendererReady: vi.fn(),
-    reportTelemetryEvent: vi.fn(async () => {}),
     showTaskNotification: vi.fn(),
     syncWindowTabs: vi.fn(),
     syncWindowUnreadCount: vi.fn(),

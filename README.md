@@ -17,6 +17,7 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
 
 ## 更新
 
+- 2026-10-21：长会话性能优化、对话存档可勾选清理、Bot 失败/会话失效自动恢复。
 - 2026-10-10：更新至 ZCode v3.15.1 版本。
 - 2026-9-23：更新至 ZCode v3.14.3 版本。
 
@@ -24,7 +25,7 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
 
 本仓库在上游源码基础上做了以下离线化/自托管改造，全部只改源码，不影响正在运行的桌面版数据：
 
-- **遥测已硬关闭**：数仓事件上报端点固定为空（`packages/services/src/telemetry/telemetryCore.ts`），ARMS RUM 关闭（`enable: false`、`autoInject: false`），CLI OTLP 与桌面 TTFT/动作轨迹导出解析函数直接返回 `undefined`。**设备身份 `device_mid` 保留**（provider 请求头 `X-Device-Mid`、反馈与计费仍需要它），不产生任何上报请求。
+- **遥测已完全删除**：数仓事件上报、ARMS RUM、CLI OTLP、桌面本地 TTFT/动作轨迹导出、遥测 IPC 与相关依赖均已从源码移除，不产生任何上报请求。**设备身份 `device_mid` 保留**（provider 请求头 `X-Device-Mid`、反馈与计费仍需要它），持久化文件仍为 `telemetry-state.json` 的 `deviceMid` 字段，现有设备身份不会丢失。
 - **广告/推广已删除**：Marketing Touch 弹窗与横幅、Rewards 入口、Coding Plan 升级推广（弹窗/入口/漏斗遥测/计费折扣）、插件商店 Featured/Recommended 区块。
 - **自动更新已删除**：`electron-updater` 依赖、更新检查/下载/安装 IPC 与 UI、更新状态窗口、强制更新启动阻断、更新相关设置项与 i18n。
 - **Web/手机远程遥控已断开（Z.ai 中继）**：桌面端 feature gate 默认关闭（`packages/desktop/src/main/webRemoteControlFeatureGate.ts`），relay 地址默认回落到本机不可达端口（`packages/shared/src/zcodeEndpoint.ts`）。需要自托管时用 `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` 显式指定。**微信/Telegram/飞书 Bot 渠道不受影响**（它们直连各自平台，不依赖 Z.ai 中继）。
@@ -34,6 +35,14 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
   - 新增 `/用量`（token 用量与状态）、`/改动`（未提交改动摘要，本地走 git、远端退回任务级计数）、`/历史 [数量]`（最近会话消息回放）、`/结果 [序号]`（重发最近助手产出）。
   - **模型解析失败不再报错**：Host 侧模型清单为空/不可用时降级为“不显式固定模型”，交给 CLI admission 用会话选择接手，并由 300ms 后重试一次；确定性错误（配置/授权/能力类）只提醒一次并提交 provider 游标，不再每 ~5s 重试刷屏、不再需要解绑重绑恢复。
   - `/status` 改用 CLI 权威运行态快照（`control.phase`）判断运行中，修正“正在工作却显示已完成”的滞后。
+  - **任务失败只提示一次并自动重置**：Agent 上报 `task_error` 后，私聊先发送一次失败原因，再把 Bot 上下文回退到新任务草稿（清空 active task 与待处理交互），下一条消息直接新建任务；期间已切换任务时不会误重置。
+  - **会话失效自动恢复**：清理/删除会话后 bot 里残留的 `activeTaskId` 命中 `Session not found` 时，`/status` 等命令自动回到草稿态并正常返回，不再每 ~5s 重试同一条命令刷屏。
+- **对话存档可勾选清理**（`packages/ui/src/ArchivedTaskCleanupDialog.tsx`）：侧栏「归档」视图 → 「归档操作」菜单 → 「清理本地存档…」。支持搜索、全选/全不选、逐条勾选；确认后永久删除所选会话的 CLI 消息/部件/输入队列/用量/待办等记录与遗留快照，并执行一次 SQLite `VACUUM` 回收空间，未勾选会话不受影响。
+- **长会话/长文本渲染优化**：
+  - 时间线按轮次增量构建：流式每帧只重建发生变化的 turn，未变化 turn 直接复用上一帧的 render unit（历史轮次不再随每帧全量重算）。
+  - 流式长正文与 reasoning 超过 4000 字符时，markdown/代码高亮提交频率限制到约 100ms 一次（~10fps），完成瞬间立即渲染全文；短回复不受影响。
+  - 协议 `row.delta`/`row.upserted` 的 rowId→index 查找由每帧 O(N) 改为跨 window 副本复用索引表；Highspeed footer 在没有 Highspeed 卡时跳过整段扫描。
+  - 历史消息仍按窗加载：首屏尾窗 60 行、虚拟列表只挂载可视轮次，向上滚动接近顶部时自动预取更早行。
 
 ## 初始化
 
@@ -259,6 +268,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-zcode-desktop-windows.ps1
 - 脚本**不会结束或修改正在运行的 ZCode**；`-Install` 检测到 `ZCode` 进程时会拒绝执行，请先退出应用。
 - 桌面版与已安装版本共用 appId、`%APPDATA%\ZCode` 数据目录和单实例锁，不能同时运行两个版本。
 - 首次构建会准备 runtime assets（`prepare:runtime-assets`），耗时数分钟；未签名构建可能触发 SmartScreen 提示。
+- 打包前脚本会校验内嵌 agent（`packages\desktop\bundled-agents\win32-x64\glm\zcode.cjs`）与 CLI 产物（`apps\zcode-cli\packages\cli\dist\zcode.cjs`）的 SHA256 一致；使用 `-SkipBuild` 前若改过 CLI/协议源码，请先运行 `pnpm --filter @zcode/desktop run prepare:agent-bundle`，否则脚本会拒绝打包，避免发出缺少新协议能力的安装包。
 
 ## 仓库结构
 

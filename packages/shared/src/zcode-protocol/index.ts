@@ -107,7 +107,6 @@ import {
 } from "../zcode-protocol-legacy-types.js";
 import { zcodeTaskModeSchema } from "../zcode-task-mode-schema.js";
 
-export * from "../localTtft.js";
 export {
   hookExecutionProjectionSchema,
   hookInvocationRowSchema,
@@ -2363,6 +2362,35 @@ export const zcodeSessionCloseResultSchema = z
   })
   .strict();
 export type ZCodeSessionCloseResult = z.infer<typeof zcodeSessionCloseResultSchema>;
+export const zcodeSessionPurgeParamsSchema = z
+  .object({
+    sessionIds: z.array(nonEmptyString).min(1).max(500),
+  })
+  .strict();
+export type ZCodeSessionPurgeParams = z.infer<typeof zcodeSessionPurgeParamsSchema>;
+export const zcodeSessionPurgeEntrySchema = z
+  .object({
+    sessionId: nonEmptyString,
+    sessionFound: z.boolean(),
+    deletedMessages: z.number().int().nonnegative(),
+    deletedParts: z.number().int().nonnegative(),
+    deletedEntries: z.number().int().nonnegative(),
+    deletedInputs: z.number().int().nonnegative(),
+    deletedTodos: z.number().int().nonnegative(),
+    deletedUsageRows: z.number().int().nonnegative(),
+  })
+  .strict();
+export const zcodeSessionPurgeResultSchema = z
+  .object({
+    sessions: z.array(zcodeSessionPurgeEntrySchema),
+    /** 批次结束后执行 VACUUM 成败；失败时已删除的数据仍然生效。 */
+    vacuumed: z.boolean(),
+    /** VACUUM 实际收缩的数据库字节数（未收缩为 0）。 */
+    freedBytes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeSessionPurgeEntry = z.infer<typeof zcodeSessionPurgeEntrySchema>;
+export type ZCodeSessionPurgeResult = z.infer<typeof zcodeSessionPurgeResultSchema>;
 export const zcodeWorkspaceReadPresentationParamsSchema = z
   .object({ workspace: zcodeWorkspaceRefSchema })
   .strict();
@@ -4101,6 +4129,8 @@ export const zcodeProtocolMethods = {
   sessionCompact: "session/compact",
   sessionGoal: "session/goal",
   sessionClose: "session/close",
+  /** 永久删除会话存档（消息库 + 会话行）；不可恢复，仅供“清理对话存档”使用。 */
+  sessionPurge: "session/purge",
   // setModel 仍被 zcodeSessionService 的 desktop 旧链路消费；replayable
   // switchModelConfig 已直接由目标 Environment Registry 解析 Selection。
   sessionSetModel: "session/setModel",
@@ -4322,8 +4352,6 @@ export const zcodeStoragePathReadySchema = z
   .object({ method: z.literal("startup/storagePathReady"), reuse: z.boolean().optional() })
   .strict();
 
-// 桌面本地 TTFT 的严格事实合同；检查点不能替代实际内容帧。
-export { localTtftFactsSchema } from "../localTtft.js";
 // 群来源由可信 Host 注入，V4 命令与持久化输入使用相同运行时校验。
 export {
   botIdentitySchema,

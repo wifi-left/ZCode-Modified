@@ -34,6 +34,7 @@ import type {
 import {
   cancelBackgroundTask,
   closeSession,
+  purgeSession,
   compactSession,
   createSession,
   forkSession,
@@ -656,6 +657,8 @@ export class ZCodeProtocolAgentServer {
         return await setMode(this.context, request.params);
       case zcodeProtocolMethods.sessionClose:
         return await closeSession(this.context, request.params);
+      case zcodeProtocolMethods.sessionPurge:
+        return await purgeSession(this.context, request.params);
       case zcodeProtocolMethods.workspaceReadPresentation:
         return await readWorkspacePresentation(this.context, request.params);
       case zcodeProtocolMethods.workspaceHookTrustGrant: {

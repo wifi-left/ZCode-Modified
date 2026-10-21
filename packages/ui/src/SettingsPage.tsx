@@ -106,33 +106,8 @@ import {
 import { AppearanceSectionContent } from "./settingsCodePreview.js";
 import type { SettingsSectionId } from "@/lib/settingsNavigation.js";
 import { requestPluginStoreOpen } from "@/lib/pluginStoreNavigation.js";
-import {
-  runUserAction,
-  runUserActionAsync,
-  type UserActionResult,
-  type UserActionTrigger,
-} from "@/lib/userActionTelemetry.js";
-import type { SettingsUserActionFeatureId } from "@/lib/userActionTraceCatalog.js";
 
-function runSettingsActionAsync<T>(options: {
-  featureId: SettingsUserActionFeatureId;
-  action: string;
-  trigger: UserActionTrigger;
-  operation: () => Promise<T>;
-  completed: UserActionResult;
-  failureStage?: string;
-}): Promise<T> {
-  return runUserActionAsync({
-    input: {
-      featureId: options.featureId,
-      action: options.action,
-      trigger: options.trigger,
-    },
-    operation: options.operation,
-    completed: options.completed,
-    failureStage: options.failureStage ?? "settings_commit",
-  });
-}
+
 
 function SettingsUsageProviderTabs({
   activeTab,
@@ -848,16 +823,7 @@ export function SettingsPage({
   }, [sharedSettings]);
   const handleTerminalInheritSystemProfileChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.terminal",
-        action: "toggle_system_profile",
-        trigger: "switch",
-        operation: () => services.settingService.update({ terminalInheritSystemProfile: enabled }),
-        completed: {
-          resultSource: "setting_service",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => services.settingService.update({ terminalInheritSystemProfile: enabled }))();
       setTerminalInheritSystemProfile(enabled);
     },
     [services.settingService],
@@ -865,86 +831,40 @@ export function SettingsPage({
   const handleTerminalFontFamilyChange = useCallback(
     async (fontFamily: string) => {
       const normalizedFontFamily = fontFamily.trim();
-      await runSettingsActionAsync({
-        featureId: "settings.terminal",
-        action: "save_font_family",
-        trigger: "button",
-        operation: () =>
-          services.settingService.update({ terminalFontFamily: normalizedFontFamily }),
-        completed: { resultSource: "setting_service", configured: normalizedFontFamily.length > 0 },
-      });
+      await (() =>
+          services.settingService.update({ terminalFontFamily: normalizedFontFamily }))();
       setTerminalFontFamily(normalizedFontFamily);
     },
     [services.settingService],
   );
   const handleIntegratedTerminalShellChange = useCallback(
     async (selection: IntegratedTerminalShellSelection) => {
-      await runSettingsActionAsync({
-        featureId: "settings.terminal",
-        action: "change_shell",
-        trigger: "select",
-        operation: () => services.settingService.update({ integratedTerminalShell: selection }),
-        completed: {
-          resultSource: "setting_service",
-          valueAfter: selection.mode === "auto" ? "auto" : "explicit",
-        },
-      });
+      await (() => services.settingService.update({ integratedTerminalShell: selection }))();
       setIntegratedTerminalShell(selection);
     },
     [services.settingService],
   );
   const handleNativeSearchEnhancementsEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.search",
-        action: "toggle_native_search",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ nativeSearchEnhancementsEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ nativeSearchEnhancementsEnabled: enabled }))();
     },
     [updateSharedSettings],
   );
   const handleAskUserQuestionAutoResolutionEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "toggle_ask_user_auto_resolution",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ askUserQuestionAutoResolutionEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ askUserQuestionAutoResolutionEnabled: enabled }))();
     },
     [updateSharedSettings],
   );
   const handleModelIoFullRetentionEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "toggle_model_io_retention",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ modelIoFullRetentionEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ modelIoFullRetentionEnabled: enabled }))();
     },
     [updateSharedSettings],
   );
   const handleMemoryEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.memory",
-        action: "toggle_memory",
-        trigger: "switch",
-        operation: async () => {
+      await (async () => {
           await updateSharedSettings({ memoryEnabled: enabled });
           // 手动修改反向回写 record，换号同步不会复活旧值；失败不阻塞开关。
           await onboardingRecordService
@@ -952,33 +872,18 @@ export function SettingsPage({
             .catch((cause: unknown) => {
               console.warn("[settings] 回写引导记录失败", String(cause));
             });
-        },
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+        })();
     },
     [updateSharedSettings],
   );
   const handleHttpProxyChange = useCallback(
     async (proxy: string) => {
       const normalizedProxy = proxy.trim();
-      await runSettingsActionAsync({
-        featureId: "settings.network",
-        action: "save_http_proxy",
-        trigger: "button",
-        operation: () =>
+      await (() =>
           services.settingService.update({
             // Bugfix: RPC 会丢弃 undefined；清空代理必须传空串，由服务层删除旧字段。
             httpProxy: normalizedProxy,
-          }),
-        completed: {
-          resultSource: "setting_service",
-          configured: normalizedProxy.length > 0,
-          requiresRestart: true,
-        },
-      });
+          }))();
       setHttpProxy(normalizedProxy);
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
@@ -991,17 +896,11 @@ export function SettingsPage({
         .map((token) => token.trim())
         .filter(Boolean)
         .join(",");
-      await runSettingsActionAsync({
-        featureId: "settings.network",
-        action: "save_no_proxy",
-        trigger: "button",
-        operation: () =>
+      await (() =>
           services.settingService.update({
             // Bugfix: 清空 No Proxy 必须传空串，否则旧绕过规则会继续影响下次启动。
             httpProxyNoProxy: normalizedNoProxy,
-          }),
-        completed: { resultSource: "setting_service", configured: normalizedNoProxy.length > 0 },
-      });
+          }))();
       setHttpProxyNoProxy(normalizedNoProxy);
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
@@ -1010,21 +909,11 @@ export function SettingsPage({
   const handleHttpProxyCaCertPathChange = useCallback(
     async (caCertPath: string) => {
       const normalizedCaCertPath = caCertPath.trim();
-      await runSettingsActionAsync({
-        featureId: "settings.network",
-        action: "save_ca_certificate",
-        trigger: "button",
-        operation: () =>
+      await (() =>
           services.settingService.update({
             // Bugfix: 清空自定义 CA 必须传空串，否则旧 NODE_EXTRA_CA_CERTS 路径会残留。
             httpProxyCaCertPath: normalizedCaCertPath,
-          }),
-        completed: {
-          resultSource: "setting_service",
-          configured: normalizedCaCertPath.length > 0,
-          requiresRestart: true,
-        },
-      });
+          }))();
       setHttpProxyCaCertPath(normalizedCaCertPath);
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
@@ -1032,14 +921,7 @@ export function SettingsPage({
   );
   const handleDataBaseDirChange = useCallback(
     async (dir: string) => {
-      await runSettingsActionAsync({
-        featureId: "settings.storage",
-        action: "change_data_directory",
-        trigger: "button",
-        operation: () => services.settingService.updateDataBaseDir(dir || undefined),
-        completed: { resultSource: "setting_service", requiresRestart: true },
-        failureStage: "data_directory_update",
-      });
+      await (() => services.settingService.updateDataBaseDir(dir || undefined))();
       // Bugfix: 迁移失败时不能先把本地状态改成失败路径，否则设置页会误显示为已切换。
       setDataBaseDir(dir);
     },
@@ -1047,45 +929,21 @@ export function SettingsPage({
   );
   const handleTaskAutoArchiveEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.task",
-        action: "toggle_auto_archive",
-        trigger: "switch",
-        operation: () => services.settingService.update({ taskAutoArchiveEnabled: enabled }),
-        completed: {
-          resultSource: "setting_service",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => services.settingService.update({ taskAutoArchiveEnabled: enabled }))();
       setTaskAutoArchiveEnabled(enabled);
     },
     [services.settingService],
   );
   const handleTaskAutoArchiveOlderThanDaysChange = useCallback(
     async (days: number) => {
-      await runSettingsActionAsync({
-        featureId: "settings.task",
-        action: "change_auto_archive_days",
-        trigger: "select",
-        operation: () => services.settingService.update({ taskAutoArchiveOlderThanDays: days }),
-        completed: { resultSource: "setting_service", valueAfter: String(days) },
-      });
+      await (() => services.settingService.update({ taskAutoArchiveOlderThanDays: days }))();
       setTaskAutoArchiveOlderThanDays(days);
     },
     [services.settingService],
   );
   const handleCloseToTrayOnWindowsChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.desktop",
-        action: "toggle_close_to_tray",
-        trigger: "switch",
-        operation: () => services.settingService.update({ closeToTrayOnWindows: enabled }),
-        completed: {
-          resultSource: "setting_service",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => services.settingService.update({ closeToTrayOnWindows: enabled }))();
       platform.syncAppSettings?.({ closeToTrayOnWindows: enabled });
       setCloseToTrayOnWindows(enabled);
     },
@@ -1094,33 +952,14 @@ export function SettingsPage({
   // keep-awake：走 useSettings 统一写盘 + syncAppSettings，和 Automations/创建页入口共享同一状态源。
   const handleKeepAwakeWhileRunningChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.desktop",
-        action: "toggle_keep_awake",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ keepAwakeWhileRunning: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ keepAwakeWhileRunning: enabled }))();
     },
     [updateSharedSettings],
   );
   const handleDesktopChromiumHardwareAccelerationChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.desktop",
-        action: "toggle_hardware_acceleration",
-        trigger: "switch",
-        operation: () =>
-          services.settingService.update({ desktopChromiumHardwareAccelerationEnabled: enabled }),
-        completed: {
-          resultSource: "setting_service",
-          stateAfter: enabled ? "enabled" : "disabled",
-          requiresRestart: true,
-        },
-      });
+      await (() =>
+          services.settingService.update({ desktopChromiumHardwareAccelerationEnabled: enabled }))();
       setDesktopChromiumHardwareAccelerationEnabled(enabled);
       toast(
         intl.formatMessage({
@@ -1132,18 +971,8 @@ export function SettingsPage({
   );
   const handleEmbeddedBrowserAllowInsecureCertificatesChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.browser",
-        action: "toggle_insecure_certificates",
-        trigger: "switch",
-        operation: () =>
-          services.settingService.update({ embeddedBrowserAllowInsecureCertificates: enabled }),
-        completed: {
-          resultSource: "setting_service",
-          stateAfter: enabled ? "enabled" : "disabled",
-          requiresRestart: true,
-        },
-      });
+      await (() =>
+          services.settingService.update({ embeddedBrowserAllowInsecureCertificates: enabled }))();
       setEmbeddedBrowserAllowInsecureCertificates(enabled);
       // 证书策略在 main 启动时装到 Session 上，改完必须重启才会换掉 verifyProc。
       toast(
@@ -1156,93 +985,42 @@ export function SettingsPage({
   );
   const handleMessageStreamShowReasoningChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "toggle_show_reasoning",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ messageStreamShowReasoning: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ messageStreamShowReasoning: enabled }))();
       setMessageStreamShowReasoning(enabled);
     },
     [updateSharedSettings],
   );
   const handleMessageStreamShowTodosChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "toggle_show_todos",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ messageStreamShowTodos: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ messageStreamShowTodos: enabled }))();
       setMessageStreamShowTodos(enabled);
     },
     [updateSharedSettings],
   );
   const handleToolGroupingExploreEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.tool_grouping",
-        action: "toggle_explore_grouping",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ toolGroupingExploreEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ toolGroupingExploreEnabled: enabled }))();
       setToolGroupingExploreEnabled(enabled);
     },
     [updateSharedSettings],
   );
   const handleToolGroupingTerminalEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.tool_grouping",
-        action: "toggle_terminal_grouping",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ toolGroupingTerminalEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ toolGroupingTerminalEnabled: enabled }))();
       setToolGroupingTerminalEnabled(enabled);
     },
     [updateSharedSettings],
   );
   const handleToolGroupingChangesEnabledChange = useCallback(
     async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.tool_grouping",
-        action: "toggle_changes_grouping",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ toolGroupingChangesEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
+      await (() => updateSharedSettings({ toolGroupingChangesEnabled: enabled }))();
       setToolGroupingChangesEnabled(enabled);
     },
     [updateSharedSettings],
   );
   const handleZCodeInteractionBehaviorChange = useCallback(
     async (behavior: ZCodeInteractionBehavior) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "change_interaction_behavior",
-        trigger: "select",
-        operation: () => updateSharedSettings({ zcodeInteractionBehavior: behavior }),
-        completed: { resultSource: "shared_settings", valueAfter: behavior },
-      });
+      await (() => updateSharedSettings({ zcodeInteractionBehavior: behavior }))();
       setZCodeInteractionBehavior(behavior);
     },
     [updateSharedSettings],
@@ -1250,21 +1028,11 @@ export function SettingsPage({
   const handleFooterLocaleChange = useCallback(
     (value: string) => {
       if (value === "system") {
-        runUserAction({
-          input: { featureId: "settings.locale", action: "change_locale", trigger: "select" },
-          operation: () => setLocalePreference("system"),
-          completed: { resultSource: "local_commit", valueAfter: "system" },
-          failureStage: "local_commit",
-        });
+        (() => setLocalePreference("system"))();
         return;
       }
       if (value === "zh-CN" || value === "en-US") {
-        runUserAction({
-          input: { featureId: "settings.locale", action: "change_locale", trigger: "select" },
-          operation: () => setLocalePreference(value as Locale),
-          completed: { resultSource: "local_commit", valueAfter: value },
-          failureStage: "local_commit",
-        });
+        (() => setLocalePreference(value as Locale))();
       }
     },
     [setLocalePreference],
@@ -1278,12 +1046,7 @@ export function SettingsPage({
         value === "zai-dark" ||
         value === "system"
       ) {
-        runUserAction({
-          input: { featureId: "settings.appearance", action: "change_theme", trigger: "select" },
-          operation: () => setTheme(value as Theme),
-          completed: { resultSource: "local_commit", valueAfter: value },
-          failureStage: "local_commit",
-        });
+        (() => setTheme(value as Theme))();
       }
     },
     [setTheme],
@@ -1302,17 +1065,7 @@ export function SettingsPage({
                 ? "toggle_code_line_wrap"
                 : "change_code_font_size";
       const value = Object.values(patch)[0];
-      return runUserAction({
-        input: { featureId: "settings.appearance", action, trigger: "select" },
-        operation: () => setCodePreviewSettings(patch),
-        completed: {
-          resultSource: "local_commit",
-          ...(typeof value === "boolean"
-            ? { stateAfter: value ? ("enabled" as const) : ("disabled" as const) }
-            : { valueAfter: String(value) }),
-        },
-        failureStage: "local_commit",
-      });
+      return (() => setCodePreviewSettings(patch))();
     },
     [setCodePreviewSettings],
   );
@@ -1390,21 +1143,12 @@ export function SettingsPage({
                       })}
                       className="m-1 w-[calc(100%-0.5rem)] justify-start gap-2 rounded-xl px-1.5 text-foreground-subtle hover:bg-surface-hover hover:text-foreground max-lg:m-1 max-lg:size-10 max-lg:justify-center max-lg:px-0"
                       onClick={() => {
-                        runUserAction({
-                          input: {
-                            featureId: "settings.navigation",
-                            action: "back_to_workspace",
-                            trigger: "button",
-                          },
-                          operation: () => {
+                        (() => {
                             if (pluginNavigationOrigin === "plugin-store") {
                               requestPluginStoreOpen("user");
                             }
                             onBack?.();
-                          },
-                          completed: { resultSource: "local_commit" },
-                          failureStage: "navigation_commit",
-                        });
+                          })();
                       }}
                     >
                       <ArrowLeft className="size-4" />
@@ -1464,20 +1208,11 @@ export function SettingsPage({
                               aria-current={isActive ? "page" : undefined}
                               data-testid={testId(TID_SETTINGS_SECTION_NAV, id)}
                               onClick={() => {
-                                runUserAction({
-                                  input: {
-                                    featureId: "settings.navigation",
-                                    action: "open_section",
-                                    trigger: "button",
-                                  },
-                                  operation: () => {
+                                (() => {
                                     setPluginNavigationOrigin(undefined);
                                     setSettingsSectionNavigationVersion((version) => version + 1);
                                     setActiveSettingsSection(id);
-                                  },
-                                  completed: { resultSource: "local_commit", sectionId: id },
-                                  failureStage: "navigation_commit",
-                                });
+                                  })();
                               }}
                             >
                               <span className="truncate text-ui-base text-foreground">{label}</span>
@@ -1494,16 +1229,7 @@ export function SettingsPage({
                   label={intl.formatMessage({ id: "settings.onboarding" })}
                   className="mt-4 border border-dashed border-border hover:border-border-hover"
                   onClick={() => {
-                    runUserAction({
-                      input: {
-                        featureId: "settings.navigation",
-                        action: "open_onboarding",
-                        trigger: "button",
-                      },
-                      operation: requestOnboardingDialog,
-                      completed: { resultSource: "local_commit" },
-                      failureStage: "dialog_open",
-                    });
+                    (requestOnboardingDialog)();
                   }}
                 >
                   <span className="text-ui-base text-foreground">
@@ -1663,34 +1389,10 @@ export function SettingsPage({
                             showIntegratedTerminalShell={hostPlatform === "win32"}
                             setLocalePreference={handleFooterLocaleChange}
                             setNotificationEnabled={(enabled) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.notification",
-                                  action: "toggle_notification",
-                                  trigger: "switch",
-                                },
-                                operation: () => setNotificationEnabled(enabled),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  stateAfter: enabled ? "enabled" : "disabled",
-                                },
-                                failureStage: "local_commit",
-                              })
+                              (() => setNotificationEnabled(enabled))()
                             }
                             setNotificationSoundEnabled={(enabled) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.notification",
-                                  action: "toggle_notification_sound",
-                                  trigger: "switch",
-                                },
-                                operation: () => setNotificationSoundEnabled(enabled),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  stateAfter: enabled ? "enabled" : "disabled",
-                                },
-                                failureStage: "local_commit",
-                              })
+                              (() => setNotificationSoundEnabled(enabled))()
                             }
                             taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                             taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
@@ -1747,16 +1449,7 @@ export function SettingsPage({
                               handleAskUserQuestionAutoResolutionEnabledChange
                             }
                             onOpenOnboardingDialog={() =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.navigation",
-                                  action: "open_onboarding",
-                                  trigger: "button",
-                                },
-                                operation: requestOnboardingDialog,
-                                completed: { resultSource: "local_commit" },
-                                failureStage: "dialog_open",
-                              })
+                              (requestOnboardingDialog)()
                             }
                           />
                         ) : activeSection === "appearance" ? (
@@ -1767,19 +1460,7 @@ export function SettingsPage({
                             setTheme={(nextTheme) => handleFooterThemeChange(nextTheme)}
                             uiFontSizePx={uiFontSizePx}
                             setUiFontSizePx={(fontSizePx) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.appearance",
-                                  action: "change_ui_font_size",
-                                  trigger: "keyboard",
-                                },
-                                operation: () => setUiFontSizePx(fontSizePx),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  valueAfter: String(fontSizePx),
-                                },
-                                failureStage: "local_commit",
-                              })
+                              (() => setUiFontSizePx(fontSizePx))()
                             }
                           />
                         ) : activeSection === "shortcuts" ? (

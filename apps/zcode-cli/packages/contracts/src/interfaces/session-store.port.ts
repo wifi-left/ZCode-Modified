@@ -1060,6 +1060,16 @@ export interface TaskUsageQueryInput {
   sessionID: SessionId;
 }
 
+export interface SessionPurgeResult {
+  sessionFound: boolean;
+  deletedMessages: number;
+  deletedParts: number;
+  deletedEntries: number;
+  deletedInputs: number;
+  deletedTodos: number;
+  deletedUsageRows: number;
+}
+
 export interface TaskUsageQueryResult {
   sessionID: SessionId;
   totalTokens: number;
@@ -1127,6 +1137,14 @@ export interface SessionStorePort {
   removeMessage(input: { sessionID: SessionId; messageID: MessageId }): Promise<void>;
   savePart(input: MessagePart, copyFrom?: { sessionID: SessionId; id: string }): Promise<void>;
   removePart(input: { sessionID: SessionId; messageID: MessageId; partID: PartId }): Promise<void>;
+  /**
+   * 永久删除一个会话及其全部本地存档（消息、parts、entries、排队输入、todo、用量与关联索引）。
+   * 与 closeSession 不同：本操作不可恢复；调用方负责归档 guard 与用户确认。
+   * 旧宿主未实现时返回 undefined，由调用方按“不支持”处理。
+   */
+  purgeSession?(input: { sessionID: SessionId }): Promise<SessionPurgeResult>;
+  /** 重建数据库文件并返回收缩字节数；VACUUM 失败由调用方决定是否降级。 */
+  vacuum?(): Promise<{ freedBytes: number }>;
   messageWithParts(input: {
     sessionID: SessionId;
     messageID: MessageId;

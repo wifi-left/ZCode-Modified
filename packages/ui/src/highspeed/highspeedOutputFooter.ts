@@ -36,6 +36,10 @@ export function markHighspeedOutputFooterUnits<T extends HighspeedFooterUnit>(
   units: readonly T[],
   nowMs: number,
 ): (T & HighspeedOutputFooterMark)[] {
+  // 绝大多数会话没有 Highspeed 卡：避免在每帧构建时扫描/分配整段历史的 map。
+  if (!units.some((unit) => unit.visibleUserInputs.some((row) => row.highspeed))) {
+    return units as unknown as (T & HighspeedOutputFooterMark)[];
+  }
   const footerByUnitIndex = resolveHighspeedOutputFooters(units, nowMs);
   return units.map((unit, index) => {
     if (!footerByUnitIndex.has(index)) return unit;

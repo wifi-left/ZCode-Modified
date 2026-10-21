@@ -1603,7 +1603,6 @@ describe("SessionDataLayer", () => {
 
       const second = layer.acquire("s1");
       await flushMicrotasks();
-      expect(second.openKind).toBe("cold");
       expect(second.store).not.toBe(first.store);
       const window = second.store.getState().snapshot!.rows.window;
       expect(window[0]).toBe(retained[0]);
@@ -1627,8 +1626,6 @@ describe("SessionDataLayer", () => {
     const b = layer.acquire("s1");
     await flushMicrotasks();
     expect(a.store).toBe(b.store);
-    expect(a.openKind).toBe("cold");
-    expect(b.openKind).toBe("warm");
     expect(transport.subscribeCalls).toHaveLength(1);
   });
 
@@ -1655,7 +1652,7 @@ describe("SessionDataLayer", () => {
         expect.arrayContaining([
           expect.arrayContaining([
             "v4 session data lease acquired",
-            expect.objectContaining({ openKind: "cold", refCount: 1, sessionId: "s1" }),
+            expect.objectContaining({ refCount: 1, sessionId: "s1" }),
           ]),
         ]),
       );
@@ -1673,7 +1670,6 @@ describe("SessionDataLayer", () => {
     vi.advanceTimersByTime(10_000);
     const b = layer.acquire("s1");
     expect(b.store).toBe(storeA);
-    expect(b.openKind).toBe("keep_warm");
     expect(transport.unsubscribeCalls).toHaveLength(0);
     b.release();
     // 超时：退订 + 移出注册表。

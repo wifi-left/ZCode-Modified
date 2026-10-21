@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LoaderIcon, MoreHorizontal, Trash2 } from "lucide-react";
+import type { IZCodeTaskService } from "@zcode/services";
+import { Eraser, LoaderIcon, MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import {
   DropdownMenu,
@@ -19,7 +20,15 @@ import {
   type ArchivedTaskDeletionWorkspace,
   type ArchivedTaskDeletionTarget,
 } from "@/lib/archivedTaskDeletion.js";
+import { ArchivedTaskCleanupDialog } from "@/ArchivedTaskCleanupDialog.js";
 import { logger } from "@/logger.js";
+
+export interface ArchivedActionsWorkspace extends ArchivedTaskDeletionWorkspace {
+  service?: Pick<
+    IZCodeTaskService,
+    "listArchivedTasks" | "deleteArchivedTasks" | "purgeArchivedTasks"
+  >;
+}
 
 export function DeleteAllArchivedTasksButton({
   workspaces,
@@ -29,7 +38,7 @@ export function DeleteAllArchivedTasksButton({
   onDeleted,
   onRefresh,
 }: {
-  workspaces: ArchivedTaskDeletionWorkspace[];
+  workspaces: ArchivedActionsWorkspace[];
   count: number;
   disabled: boolean;
   actionsContainer?: HTMLElement | null;
@@ -41,6 +50,7 @@ export function DeleteAllArchivedTasksButton({
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
 
   async function handleDeleteAll() {
@@ -133,6 +143,18 @@ export function DeleteAllArchivedTasksButton({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
+          disabled={disabled || busy}
+          data-testid="cleanup-archived-tasks"
+          className="max-md:min-h-9"
+          onSelect={() => {
+            setMenuOpen(false);
+            setCleanupOpen(true);
+          }}
+        >
+          <Eraser className="size-3.5" />
+          {intl.formatMessage({ id: "taskList.cleanupArchivedMenu" })}
+        </DropdownMenuItem>
+        <DropdownMenuItem
           variant="destructive"
           disabled={disabled || busy}
           data-testid="delete-all-archived-tasks"
@@ -165,6 +187,13 @@ export function DeleteAllArchivedTasksButton({
           {resultMessage}
         </p>
       ) : null}
+      <ArchivedTaskCleanupDialog
+        open={cleanupOpen}
+        onOpenChange={setCleanupOpen}
+        workspaces={workspaces}
+        onPurged={onDeleted}
+        onRefresh={onRefresh}
+      />
     </>
   );
 }

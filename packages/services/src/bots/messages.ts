@@ -110,6 +110,7 @@ const messages = {
     stopSubmitted: "已停止当前任务生成。",
     unknownCommand: "未知命令：**/{command}**",
     taskFailed: "任务失败：{message}",
+    taskFailedResetHint: "已自动重置到新任务草稿，直接发送消息即可继续。",
     groupTaskQueued:
       "当前任务还有排队输入（可能已暂停）。请在 Desktop 处理或移除队列后再切换任务；/停止 不会清空队列。",
     groupTaskInteraction: "当前任务正在等待回答或审批。请先处理该交互，或使用 /停止 结束当前任务。",
@@ -284,6 +285,7 @@ const messages = {
     stopSubmitted: "Current task generation stopped.",
     unknownCommand: "Unknown command: **/{command}**",
     taskFailed: "Task failed: {message}",
+    taskFailedResetHint: "Reset to a new task draft. Send a message to continue.",
     groupTaskQueued:
       "The current task still has queued inputs, possibly paused. Process or remove them in Desktop before switching tasks; /stop does not clear the queue.",
     groupTaskInteraction:

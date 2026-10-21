@@ -31,7 +31,7 @@ import type {
   SessionPhase,
 } from "@zcode/shared/zcode-protocol-v4";
 import { cn } from "@/components/lib/utils.js";
-import { runUserAction } from "@/lib/userActionTelemetry.js";
+
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
@@ -57,6 +57,7 @@ import {
 } from "@/v4/conversationLayout.js";
 import {
   buildConversationTurnRenderUnits,
+  createConversationTurnRenderUnitsCache,
   resolveNextHighspeedExpiryMs,
   type ConversationTurnRenderUnit,
 } from "@/v4/conversationTurnRenderUnits.js";
@@ -158,12 +159,7 @@ function ConversationBackToBottomButton({
       className={cn("rounded-full bg-card hover:bg-card-selected", className)}
       data-testid={TID_V4_TIMELINE_BOTTOM}
       onClick={() =>
-        runUserAction({
-          input: { featureId: "conversation.navigation", action: "jump_bottom", trigger: "button" },
-          operation: onClick,
-          completed: { resultSource: "local_commit" },
-          failureStage: "timeline_scroll",
-        })
+        (onClick)()
       }
     >
       <ArrowDownIcon className="size-4" />
@@ -450,14 +446,25 @@ function ConversationTimelineImpl({
     });
   }, [pluginUiDerivation, sessionKey, pluginUiDisclosureVersion]);
   const topicPreparations = useBotTopicPreparations();
+  // 增量重建：流式每帧只重算受影响轮次，历史轮次直接复用上一帧 unit。
+  const renderUnitCacheRef = useRef<ReturnType<
+    typeof createConversationTurnRenderUnitsCache
+  > | null>(null);
+  if (renderUnitCacheRef.current === null) {
+    renderUnitCacheRef.current = createConversationTurnRenderUnitsCache();
+  }
   const renderUnits = useMemo(
     () =>
       withTopicPreparationMessages(
-        buildConversationTurnRenderUnits(rows, {
-          nowMs: liveNowMs,
-          sessionPhase,
-          pluginUiPinResolver,
-        }),
+        buildConversationTurnRenderUnits(
+          rows,
+          {
+            nowMs: liveNowMs,
+            sessionPhase,
+            pluginUiPinResolver,
+          },
+          renderUnitCacheRef.current ?? undefined,
+        ),
         rows,
         topicPreparations,
       ),

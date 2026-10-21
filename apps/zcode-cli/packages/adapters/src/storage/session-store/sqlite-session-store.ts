@@ -1,4 +1,5 @@
 import * as permissionFullAccessRepository from "./repositories/permission-full-access.js";
+import { statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import type {
   CollaborationMode,
@@ -45,6 +46,7 @@ import type {
   SessionInputStatus,
   SessionTaskLinkRecord,
   SessionRevert,
+  SessionPurgeResult,
   SessionStorePort,
   SharedContextImportCommitBundle,
   SharedContextImportTransition,
@@ -94,6 +96,7 @@ import { createDwfJournalStore } from "./repositories/dwf-journal.js";
 import * as inputHistoryRepository from "./repositories/input-history.js";
 import * as localSettingsRepository from "./repositories/local-settings.js";
 import * as messageRepository from "./repositories/messages.js";
+import * as purgeRepository from "./repositories/purge.js";
 import * as scriptWorkflowActivityRepository from "./repositories/script-workflow-activities.js";
 import * as scriptWorkflowRunRepository from "./repositories/script-workflow-runs.js";
 import * as sessionEntryRepository from "./repositories/session-entries.js";
@@ -617,6 +620,20 @@ export class SqliteSessionStore
   async removeMessage(input: { sessionID: SessionId; messageID: MessageId }): Promise<void> {
     this.throwBeforeWrite();
     return messageRepository.removeMessage(this.db, input);
+  }
+
+  async purgeSession(input: { sessionID: SessionId }): Promise<SessionPurgeResult> {
+    this.throwBeforeWrite();
+    return purgeRepository.purgeSession(this.db, input);
+  }
+
+  async vacuum(): Promise<{ freedBytes: number }> {
+    this.throwBeforeWrite();
+    const before = statSync(this.dbPath).size;
+    this.db.exec("vacuum");
+    // VACUUM 后 WAL 已被重置；主库文件大小即实际占用。
+    const after = statSync(this.dbPath).size;
+    return { freedBytes: Math.max(0, before - after) };
   }
 
   async savePart(

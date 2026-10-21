@@ -4,6 +4,7 @@ import { expandTopicInputMessages } from "@/v4/topicInputMessages.js";
 import { ConnectedBotGroupDeliveryAction } from "@/v4/BotGroupDeliveryAction.js";
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { useThrottledStreamingText } from "@/hooks/useThrottledStreamingText.js";
 import {
   type ComponentProps,
   memo,
@@ -100,8 +101,8 @@ import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { resolveWorkflowRunOpenToolCallId } from "@/v4/workflowRunCardJoin.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
-import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
-import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
+
+
 import { logger } from "@/logger.js";
 import { PluginUiModelContextChip, formatPluginDisplayName } from "@/plugin-ui/index.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
@@ -193,12 +194,7 @@ const CopyRowAction = memo(function CopyRowAction({
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
     if (!text || !navigator.clipboard) return;
-    void runUserActionAsync({
-      input: { featureId: "conversation.history.feedback", action: "copy", trigger: "button" },
-      operation: () => navigator.clipboard.writeText(text),
-      completed: { resultSource: "platform_result" },
-      failureStage: "clipboard_write",
-    }).then(() => {
+    void (() => navigator.clipboard.writeText(text))().then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     });
@@ -1549,31 +1545,12 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
           },
         );
       }
-      if (platform && entityId) {
-        void reportAppTelemetryEvent(
-          platform,
-          {
-            elementName: "assistant_message_feedback",
-            eventRegion: "chat",
-            eventType: "ck",
-            eventExtraDetail: { reaction: resolvedFeedback ?? "none" },
-            ...(sessionId ? { talkId: sessionId } : {}),
-            messageId: entityId,
-          },
-          "ConversationRowView",
-        );
-      }
     },
     [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
   );
   const handleFork = useCallback(() => {
     if (entityId) {
-      runUserAction({
-        input: { featureId: "conversation.history.branch", action: "fork", trigger: "button" },
-        operation: () => onFork?.({ rowId, entityId }),
-        completed: { resultSource: "optimistic_projection" },
-        failureStage: "fork",
-      });
+      (() => onFork?.({ rowId, entityId }))();
     }
   }, [entityId, onFork, rowId]);
   return (
@@ -1688,6 +1665,8 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
         : row.text,
     [projectsCodeComments, row.text, streaming],
   );
+  // 长正文流式时限制 markdown 重解析频率；完成态/短文本仍逐帧显示全文。
+  const renderedText = useThrottledStreamingText(visibleText, streaming);
   const visiblePreviewCards = previewCards && previewCards.length > 0 ? previewCards : null;
   return (
     <RowShell rowId={row.rowId} className="group/assistant-row">
@@ -1714,7 +1693,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           sessionId={context.sessionId ?? undefined}
           readAttachment={context.readAttachment}
         >
-          {visibleText}
+          {renderedText}
         </GenUiMessageResponse>
       </div>
       {codeCommentCardsEnabled && codeCommentCards && codeCommentCards.length > 0 ? (
@@ -1785,6 +1764,8 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
   const durationSeconds =
     row.durationMs !== undefined ? Math.max(1, Math.ceil(row.durationMs / 1000)) : undefined;
+  // 长 reasoning 与正文同理：流式期间按固定频率提交给 markdown/预览，避免每 token 全量重解析。
+  const renderedReasoningText = useThrottledStreamingText(row.text, streaming);
   if (streaming && row.text.length === 0) {
     return null;
   }
@@ -1797,9 +1778,9 @@ const ReasoningRowView = memo(function ReasoningRowView({
         {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
       >
         {/* Bug 原因：附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
-        <ReasoningTrigger streamingText={row.text} />
+        <ReasoningTrigger streamingText={renderedReasoningText} />
         <div data-conversation-selectable="true">
-          <ReasoningContent variant={contentVariant}>{row.text}</ReasoningContent>
+          <ReasoningContent variant={contentVariant}>{renderedReasoningText}</ReasoningContent>
         </div>
       </Reasoning>
     </RowShell>

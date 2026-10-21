@@ -80,7 +80,6 @@ describe("OffPeakTaskService 编排", () => {
         providerId: "account:bigmodel-individual-coding-plan",
         selectedConnectionKey: "coding-plan:account:bigmodel-individual-coding-plan",
       }),
-      resolveTelemetryProviderName: async () => "api.example.com",
       resolveModelSelection: async ({ modelId, reasoningLevel }) => ({
         ok: true as const,
         selection: {
@@ -190,7 +189,6 @@ describe("OffPeakTaskService 编排", () => {
       client,
       logger,
       resolveCodingPlanSupport: async () => ({ supported: false, reason: "no-active-plan" }),
-      resolveTelemetryProviderName: async () => "",
       resolveModelSelection: async () => ({
         ok: false as const,
         validation: {
@@ -223,7 +221,6 @@ describe("OffPeakTaskService 编排", () => {
       client,
       logger,
       resolveCodingPlanSupport: async () => ({ supported: false, reason: "no-active-plan" }),
-      resolveTelemetryProviderName: async () => "",
       resolveModelSelection: async () => ({
         ok: false as const,
         validation: {
@@ -278,7 +275,6 @@ describe("OffPeakTaskService 编排", () => {
       ok: true,
       ticketInitialState: "ready",
       queuePosition: 3,
-      providerName: "api.example.com",
     });
     if (!result.ok) throw new Error("expected create success");
     const created = result.task;
@@ -332,7 +328,6 @@ describe("OffPeakTaskService 编排", () => {
       failureStage: "ticket_request",
       errorCategory: "quota_3103",
       errorCode: "3103",
-      providerName: "api.example.com",
     });
     expect(await repo.list()).toHaveLength(0);
   });

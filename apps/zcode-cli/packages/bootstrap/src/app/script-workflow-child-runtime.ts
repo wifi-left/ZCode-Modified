@@ -13,7 +13,6 @@ import {
   type PermissionService,
 } from "@zcode/core";
 import {
-  type AgentExecutionTelemetryPort,
   type BrowserControlPort,
   type ContextSourcePort,
   type FileSystemPort,
@@ -39,7 +38,6 @@ import { parseProviderQualifiedModelSelection } from "./provider-registry-select
 import type { ZCodeAppOptions } from "./types.js";
 
 export interface ScriptWorkflowAgentRuntimeDeps {
-  agentTelemetry: AgentExecutionTelemetryPort;
   appOptions: ZCodeAppOptions;
   appVersion: string;
   artifactStore?: ToolArtifactStorePort;
@@ -200,10 +198,6 @@ function createRuntimeDeps(
   clientPortsContext: ChildClientPortsContext,
 ): ConstructorParameters<typeof AgentRuntime>[2] {
   return {
-    agentTelemetry: deps.agentTelemetry,
-    agentTelemetryCausation: deps.agentTelemetry.captureCausation(),
-    // Script workflow child 具有独立生命周期；用 Link 保留发起关系。
-    agentTelemetryCausationMode: "linked_root",
     appVersion: deps.appVersion,
     artifactStore: deps.artifactStore,
     contextSourcePort:

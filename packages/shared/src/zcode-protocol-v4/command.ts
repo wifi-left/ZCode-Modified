@@ -1,5 +1,4 @@
 import { createSessionRequestedConfigSchema } from "./create-session-config.js";
-import { localTtftContextSchema, localTtftClockSchema } from "../localTtft.js";
 import { conversationQuotesSchema } from "../conversationSelection.js";
 // Command 层：信封 / ACK / 命令全集 payload。
 // conversation rewind 无独立命令（裁决：= editUserQuery 的 UI 入口）；
@@ -338,7 +337,6 @@ export const ROW_TARGETING_COMMANDS: ReadonlySet<CommandType> = new Set([
 
 // ── 信封 ──
 export const commandEnvelopeSchema = z.object({
-  ttft: localTtftContextSchema.optional(),
   // uuid v7，客户端生成，重试不变。
   commandId: z.string(),
   clientId: z.string(),
@@ -473,13 +471,8 @@ export type CommandKey = z.infer<typeof commandKeySchema>;
 export const commandsQueryParamsSchema = z
   .object({
     commands: z.array(commandKeySchema).min(1).max(64),
-    clock: z.literal(true).optional(),
   })
-  .strict()
-  .refine(
-    (params) => !params.clock || params.commands.every((key) => key.sessionId === null),
-    "clock probes cannot query session commands",
-  );
+  .strict();
 export type CommandsQueryParams = z.infer<typeof commandsQueryParamsSchema>;
 
 export const commandQueryItemSchema = z
@@ -493,7 +486,6 @@ export type CommandQueryItem = z.infer<typeof commandQueryItemSchema>;
 export const commandsQueryResultSchema = z
   .object({
     results: z.array(commandQueryItemSchema).min(1).max(64),
-    clock: localTtftClockSchema.optional(),
   })
   .strict();
 export type CommandsQueryResult = z.infer<typeof commandsQueryResultSchema>;

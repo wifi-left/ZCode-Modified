@@ -1768,6 +1768,7 @@ export function createBotsService(
   async function writeDraftContext(
     context: BotContextState,
     draftOptions?: BotDraftOptions,
+    expectedTaskId?: string | null,
   ): Promise<BotContextState> {
     // Bugfix: 新建草稿状态以前散落在 /new 和 /workspace 分支里，各自手写 activeTaskId=null。
     // workspace 切换后如果还带着旧 task/pending permission，Telegram 权限按钮会命中错误上下文。
@@ -1790,7 +1791,7 @@ export function createBotsService(
         }
       }
     } else clearPrivatePendingSelectionsForBot(context.botId);
-    await writeContext(draftContext);
+    await writeContext(draftContext, false, expectedTaskId);
     stopGroupSynchronization(context);
     return draftContext;
   }
@@ -3941,7 +3942,11 @@ export function createBotsService(
         // 修复（错误刷屏）：确定性错误（配置/运行时能力/授权类）重试同一条消息也不会成功。
         // 旧行为会释放去重并让 provider 游标回退，导致同一条消息每 ~5s 重试、错误提示无限刷屏。
         // 现在：确定性错误只提醒一次并提交游标；瞬时错误（网络/超时）保持原有重试语义。
-        const deterministicFailure = isDeterministicBotFailure(error);
+        // Session not found 对命令同样确定性：重试同一条 /status 不会自行恢复，只会无限刷屏；
+        // 普通消息仍按瞬时错误重试（保留 CLI 冷启动期的恢复机会）。
+        const deterministicFailure =
+          isDeterministicBotFailure(error) ||
+          (isSessionExpiredError(error) && /^\s*\//u.test(inboundMessage.text ?? ""));
         // 确定性错误走正常 ACK 路径（错误提示仍然发给用户），让 provider 提交游标，
         // 同一条消息不再被每 ~5s 重试；瞬时错误保持“释放去重 + ok:false”以支持重试。
         if (!deterministicFailure) {
@@ -5833,27 +5838,39 @@ export function createBotsService(
           streamSubscriptions.delete(streamSubscriptionKey);
         }
         if (event.type === "task_error") {
-          if (supportsStreamingCardReply()) {
-            streamingCardStatus = "error";
-            if (!hasStreamingCardMessageText()) {
-              appendStreamingCardMessages([
-                msg(await readMessageLocale(), "taskFailed", {
-                  message: event.error,
-                }),
-              ]);
+          // 任务失败后会话通常无法继续产出，私聊旧行为会把 activeTaskId 留在失败任务上：
+          // 用户不 /new 就只能反复撞同一个错误。失败提示只发一次，随后把上下文回退到
+          // 草稿态（下一条消息自动新建任务）；expectedTaskId 防止期间已切换任务时误重置。
+          const resetToDraft = !context.group && context.activeTaskId === event.taskId;
+          const locale = await readMessageLocale();
+          const failureText = resetToDraft
+            ? `${msg(locale, "taskFailed", { message: event.error })}\n\n${msg(locale, "taskFailedResetHint")}`
+            : msg(locale, "taskFailed", { message: event.error });
+          try {
+            if (supportsStreamingCardReply()) {
+              streamingCardStatus = "error";
+              if (!hasStreamingCardMessageText()) {
+                appendStreamingCardMessages([failureText]);
+              }
+              await syncStreamingCardReply(event.type, true);
+            } else {
+              await sendTaskOutbound(bot, createOutbound(actor, failureText));
             }
-            await syncStreamingCardReply(event.type, true);
-            return;
+          } finally {
+            // 必须先投递错误再重置：发送授权校验会比对持久化的 activeTaskId。
+            if (resetToDraft) {
+              await writeDraftContext(context, context.draftOptions, event.taskId).catch((error) => {
+                botsLogger.warn(
+                  undefined,
+                  `reset bot draft after task error failed bot=${bot.id} task=${event.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              });
+              botsLogger.info(
+                undefined,
+                `bot task failed; state reset to draft bot=${bot.id} task=${event.taskId}`,
+              );
+            }
           }
-          await sendTaskOutbound(
-            bot,
-            createOutbound(
-              actor,
-              msg(await readMessageLocale(), "taskFailed", {
-                message: event.error,
-              }),
-            ),
-          );
           return;
         }
 
@@ -6626,18 +6643,31 @@ export function createBotsService(
     const activeTask = context.activeTaskId
       ? tasks.find((task) => task.taskId === context.activeTaskId)
       : null;
-    const activeTaskSnapshot = context.activeTaskId
-      ? await zcodeTaskService
-          .getTaskSnapshot({
-            taskId: context.activeTaskId,
-            workspacePath: context.workspacePath,
-            workspaceIdentity: context.workspaceIdentity,
-          })
-          .catch(() => null)
-      : null;
+    let activeTaskSnapshot: Awaited<ReturnType<typeof zcodeTaskService.getTaskSnapshot>> = null;
+    if (context.activeTaskId) {
+      try {
+        activeTaskSnapshot = await zcodeTaskService.getTaskSnapshot({
+          taskId: context.activeTaskId,
+          workspacePath: context.workspacePath,
+          workspaceIdentity: context.workspaceIdentity,
+        });
+      } catch (error) {
+        // 清理/删除会话后 bot 持久化的 activeTaskId 会指向已不存在的 session。
+        // 旧行为在这里吞掉错误，随后 getTaskConfigOptions 抛 Session not found，
+        // 顶部 catch 把命令当瞬时错误重试，导致 /status 每 ~5s 重复输出一次过期提示。
+        // 这里直接把上下文回退到草稿态，下一次命令和消息都从干净状态开始。
+        if (isSessionExpiredError(error)) {
+          botsLogger.warn(
+            undefined,
+            `bot active task session missing; reset to draft bot=${context.botId} task=${context.activeTaskId}`,
+          );
+          context = await writeDraftContext(context, context.draftOptions);
+        }
+      }
+    }
     // Bugfix: activeTaskId 来自 bot context，不应依赖 listTasks 必然返回同一条任务。
     // 某些筛选/索引时序下 listTasks 找不到 active task，之前会跳过 snapshot，导致 Progress 永远缺失。
-    const statusTask = activeTask ?? activeTaskSnapshot?.meta ?? null;
+    const statusTask = context.activeTaskId ? (activeTask ?? activeTaskSnapshot?.meta ?? null) : null;
     // 修复（/status 滞后）：task meta 的 status 可能是上一轮的终态，任务实际在跑时
     // 会显示“已完成”。以 CLI 权威快照的 control.phase 为准，meta 只作回退。
     const runtimeSnapshot = context.activeTaskId
@@ -6654,8 +6684,9 @@ export function createBotsService(
     const workedDurationMs = statusTask
       ? readTaskWorkedDurationMs(activeTaskSnapshot, statusTask)
       : null;
+    // 配置读取只是展示增强；会话已经不可读时 /status 仍应可用，不能反过来抛错。
     const activeTaskConfigOptions = context.activeTaskId
-      ? await listActiveTaskConfigOptions(context, context.activeTaskId)
+      ? await listActiveTaskConfigOptions(context, context.activeTaskId).catch(() => [])
       : [];
     const isDraftStatus = context.mode === "draft" || !context.activeTaskId;
     const draftOptions = !statusTask && isDraftStatus ? await ensureDraftOptions(context) : null;

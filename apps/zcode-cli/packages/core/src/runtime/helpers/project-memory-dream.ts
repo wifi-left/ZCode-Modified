@@ -83,16 +83,9 @@ async function executeProjectMemoryDream(
   runtime: AgentRuntimeInternal,
   context: ProjectMemoryAgentContext,
 ): Promise<void> {
-  const telemetry = runtime.agentTelemetry.detached({
-    causation: context.causation,
-    executionKind: "background",
-    operation: "project_memory_dream",
-    targetKind: "project_memory",
-    traceContext: context.traceContext,
-    trigger: "scheduler",
-  });
+  
 
-  await telemetry.run(async () => {
+  await (async () => {
     let acquiredPriorMtimeMs: number | undefined;
     try {
       const nowMs = runtime.now().getTime();
@@ -103,8 +96,6 @@ async function executeProjectMemoryDream(
         nowMs,
       });
       if (timing.decision === "skip") {
-        telemetry.setResultType("metadata");
-        telemetry.finishCompleted();
         return;
       }
 
@@ -122,15 +113,11 @@ async function executeProjectMemoryDream(
         lastConsolidatedAtMs,
       );
       if (transcriptSessionIds.length < DREAM_MINIMUM_TRANSCRIPT_SESSIONS) {
-        telemetry.setResultType("metadata");
-        telemetry.finishCompleted();
         return;
       }
 
       const priorMtimeMs = await acquireDreamLock({ memoryRoot: context.memoryRoot, nowMs });
       if (priorMtimeMs === null) {
-        telemetry.setResultType("metadata");
-        telemetry.finishCompleted();
         return;
       }
       acquiredPriorMtimeMs = priorMtimeMs;
@@ -171,9 +158,7 @@ async function executeProjectMemoryDream(
         runtime.pendingMemoryUpdate = createProjectMemoryUpdate(runtime, paths);
         invalidateProjectMemoryRecallPaths(runtime, paths);
       }
-      telemetry.finishCompleted();
     } catch (error) {
-      telemetry.finishFailed("execute", "internal", error);
       if (acquiredPriorMtimeMs !== undefined) {
         try {
           await restoreDreamLockAfterFailure({
@@ -185,7 +170,7 @@ async function executeProjectMemoryDream(
         }
       }
     }
-  });
+  })();
 }
 
 async function recentModelIoSessionIds(

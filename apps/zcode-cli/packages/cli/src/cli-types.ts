@@ -36,9 +36,7 @@ import type {
   resolveLatestSession,
   ResolveLatestSessionOptions,
   RunZCodeProtocolAgentOptions,
-  prepareZCodeTelemetryEnv,
   startProcessProviderRegistryRuntime,
-  shutdownZCodeTelemetry,
   ZCodeAppOptions,
 } from "@zcode/bootstrap";
 import type { CliEnv, DotenvLoadResult, LoadCliDotenvOptions } from "./env.js";
@@ -87,7 +85,6 @@ export interface RunDependencies extends PluginsCommandOverrides {
     options: ConfigureCodingPlanApiKeyOptions,
   ) => ReturnType<typeof configureCodingPlanApiKey>;
   loadDotenv?: (options?: LoadCliDotenvOptions) => DotenvLoadResult;
-  prepareZCodeTelemetryEnv?: typeof prepareZCodeTelemetryEnv;
   projectConfigPath?: string;
   listSessions?: (options: ListZCodeSessionsOptions) => ReturnType<typeof listZCodeSessions>;
   listCustomCommands?: (
@@ -116,7 +113,6 @@ export interface RunDependencies extends PluginsCommandOverrides {
   shutdownCleanupTimeoutMs?: number;
   shutdownProcess?: CliShutdownProcess;
   startProcessProviderRegistryRuntime?: typeof startProcessProviderRegistryRuntime;
-  shutdownZCodeTelemetry?: typeof shutdownZCodeTelemetry;
 }
 
 export type CliPermissionMode = "build" | "plan" | "edit" | "yolo" | "guarded";

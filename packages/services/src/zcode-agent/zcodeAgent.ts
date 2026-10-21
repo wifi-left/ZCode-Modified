@@ -70,6 +70,7 @@ import type {
   ZCodeSessionInfo,
   ZCodeSessionMode,
   ZCodeSessionPersistence,
+  ZCodeSessionPurgeResult,
   ZCodeSessionSendResult,
   ZCodeSessionRequestRuntimePreferencesParams,
   ZCodeSessionRuntimePreferencesResult,
@@ -818,6 +819,13 @@ export interface IZCodeAgentService {
   closeSession(
     params: ZCodeAgentSessionTarget & { expectedPersistence?: "deferred" | "immediate" },
   ): Promise<boolean>;
+  /**
+   * 永久删除会话存档（会话行 + 消息/parts/entries/排队输入/todo/用量），
+   * 批次结束执行一次 VACUUM 回收磁盘。不可恢复，仅由“清理对话存档”在归档 guard 后调用。
+   */
+  purgeSessions(
+    params: ZCodeAgentWorkspaceTarget & { sessionIds: string[] },
+  ): Promise<ZCodeSessionPurgeResult>;
   setModel(params: ZCodeAgentSetModelParams): Promise<ZCodeSessionStateSnapshot>;
   setThoughtLevel(params: ZCodeAgentSetThoughtLevelParams): Promise<ZCodeSessionStateSnapshot>;
   setMode(params: ZCodeAgentSetModeParams): Promise<ZCodeSessionStateSnapshot>;
@@ -951,10 +959,6 @@ export interface IZCodeAgentService {
   onDynamicConversationFrame(
     params: ZCodeAgentWorkspaceTarget,
   ): Event<ConversationTopicWireCandidate>;
-  /** workspace 级 live telemetry 事实；connection facade 仅向可信 desktop-continuous 下游暴露。 */
-  onDynamicLocalTtftFacts(
-    params: ZCodeAgentWorkspaceTarget,
-  ): Event<import("@zcode/shared").LocalTtftFacts>;
   onDynamicConversationTelemetryFact(
     params: ZCodeAgentWorkspaceTarget,
   ): Event<ConversationTelemetryFact>;

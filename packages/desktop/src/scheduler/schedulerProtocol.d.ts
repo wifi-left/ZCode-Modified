@@ -1,4 +1,4 @@
-import type { ModelSelection, NodeSelfResourceSample } from "@zcode/shared";
+import type { ModelSelection } from "@zcode/shared";
 /** scheduler → main */
 export type SchedulerToMainMessage = {
     type: "cron-dispatch-request";
@@ -28,9 +28,6 @@ export type SchedulerToMainMessage = {
 } | {
     type: "offpeak-active-count";
     count: number;
-} | {
-    type: "scheduler-resource-sample";
-    sample: NodeSelfResourceSample;
 };
 /** main → scheduler */
 export type MainToSchedulerMessage = {

@@ -65,6 +65,27 @@ if (-not $SkipBuild) {
   Write-Host "    跳过构建（-SkipBuild）"
 }
 
+# 打包只拷贝 bundled-agents/ 里的暂存 agent，不会自动重建。
+# -SkipBuild 曾导致安装包内嵌旧 agent（缺 session/purge），清理存档在运行时静默失败；
+# 这里强制校验暂存 agent 与 CLI 产物一致，避免再次发出功能缺失的安装包。
+if (-not $SkipPackage) {
+  Write-Step "校验内嵌 agent 与 CLI 产物一致"
+  $agentSource = Join-Path $RepoRoot "apps\zcode-cli\packages\cli\dist\zcode.cjs"
+  $agentStaged = Join-Path $DesktopDir "bundled-agents\win32-x64\glm\zcode.cjs"
+  if (-not (Test-Path $agentSource)) {
+    throw "缺少 CLI agent 产物：$agentSource。请先运行 node scripts\build-desktop-agent-cli.mjs。"
+  }
+  if (-not (Test-Path $agentStaged)) {
+    throw "缺少暂存 agent：$agentStaged。请先运行 node scripts\build-desktop-agent-cli.mjs。"
+  }
+  $sourceHash = (Get-FileHash -Path $agentSource -Algorithm SHA256).Hash
+  $stagedHash = (Get-FileHash -Path $agentStaged -Algorithm SHA256).Hash
+  if ($sourceHash -ne $stagedHash) {
+    throw "内嵌 agent 已过期（与 CLI 产物不一致）。请先运行 node scripts\build-desktop-agent-cli.mjs 或去掉 -SkipBuild 重新构建。"
+  }
+  Write-Host "    agent SHA256 $sourceHash"
+}
+
 if (-not $SkipPackage) {
   Write-Step "使用 electron-builder 打包 Windows NSIS 安装包"
   Push-Location $DesktopDir

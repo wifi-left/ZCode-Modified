@@ -69,6 +69,16 @@ export interface ZCodeArchivedTaskDeletionResult {
   failedTaskIds: string[];
 }
 
+/** 永久清理归档会话存档的结果；freedBytes 含 VACUUM 收缩与遗留快照文件。 */
+export interface ZCodeArchivedTaskPurgeResult {
+  purgedTaskIds: string[];
+  skippedTaskIds: string[];
+  failedTaskIds: string[];
+  freedBytes: number;
+  deletedMessages: number;
+  deletedParts: number;
+}
+
 /** 一次模型请求里出现的消息内容片段（文本 / 工具调用 / 工具结果 / 其他原始结构）。 */
 export type ZCodeModelTrajectoryContentPart =
   | { kind: "text"; text: string }
@@ -786,6 +796,16 @@ export interface IZCodeTaskService {
     workspaceIdentity?: string;
     taskIds: string[];
   }): Promise<ZCodeArchivedTaskDeletionResult>;
+
+  /**
+   * 永久清理归档会话的本地存档（CLI 消息库 + 遗留快照文件），并写索引 tombstone。
+   * 仅清理调用时仍在归档集合里的 task；不可恢复。
+   */
+  purgeArchivedTasks(params: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+    taskIds: string[];
+  }): Promise<ZCodeArchivedTaskPurgeResult>;
 
   /** 重命名已持久化的 task */
   renameTask(params: {

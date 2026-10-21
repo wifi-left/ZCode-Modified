@@ -1718,9 +1718,9 @@ describe("ZCodeAgent connection-scoped service facade", () => {
       appVersion: "4.0.0",
     });
     await scope.service.queryConversationCommandsV4({
-      workspacePath: "/clock-only",
-      clock: true,
-      commands: [{ sessionId: null, commandId: "ttft-clock-probe" }],
+      workspacePath: "/repo",
+      workspaceIdentity: "remote:ssh:a:/repo",
+      commands: [{ sessionId: null, commandId: "query-probe" }],
     });
     await expect(scope.service.queryConversationCommandsV4(query)).resolves.toMatchObject({
       results: [{ result: "unknown" }],
@@ -1984,41 +1984,4 @@ describe("ZCodeAgent connection-scoped service facade", () => {
     await scope.dispose();
     runtimeLifecycle.dispose();
   });
-});
-
-it("本地 TTFT 检查点只向本地 desktop continuous attachment 暴露", () => {
-  const { base } = setupBase();
-  const facts = new Emitter<import("@zcode/shared").LocalTtftFacts>();
-  base.onDynamicLocalTtftFacts = vi.fn(() => facts.event);
-  const desktop = createZCodeAgentConnectionScope(base, {
-    connectionId: "desktop",
-    clientMode: "desktop-continuous",
-  });
-  const mobile = createZCodeAgentConnectionScope(base, {
-    connectionId: "mobile",
-    clientMode: "web-remote-replayable",
-  });
-  const localSeen = vi.fn();
-  const remoteSeen = vi.fn();
-  const mobileSeen = vi.fn();
-  desktop.service.onDynamicLocalTtftFacts({ workspacePath: "/same" })(localSeen);
-  desktop.service.onDynamicLocalTtftFacts({
-    workspacePath: "/same",
-    workspaceIdentity: "ssh:remote",
-    remoteSessionId: "remote",
-  })(remoteSeen);
-  mobile.service.onDynamicLocalTtftFacts({ workspacePath: "/same" })(mobileSeen);
-  facts.fire({
-    version: 1,
-    observationId: "e0b15fc2-3a50-4d73-854d-61fa148cbfd0",
-    commandId: "input",
-    instanceId: "cli",
-    receivedAt: 100,
-  });
-  expect(localSeen).toHaveBeenCalledOnce();
-  expect(remoteSeen).not.toHaveBeenCalled();
-  expect(mobileSeen).not.toHaveBeenCalled();
-  expect(base.onDynamicLocalTtftFacts).toHaveBeenCalledOnce();
-  desktop.dispose();
-  mobile.dispose();
 });
