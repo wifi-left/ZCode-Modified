@@ -1069,25 +1069,37 @@ describe("buildConversationTurnRenderUnits", () => {
       turnHeader(4, { turnId: "turn-2" }),
       userInput(5, "q2", { turnId: "turn-2" }),
     ];
+    const grown = assistantText(6, "a2 grows", { turnId: "turn-2" });
     const first = buildConversationTurnRenderUnits(
       [...history, assistantText(6, "a2", { turnId: "turn-2" })],
       {},
       cache,
     );
-    const second = buildConversationTurnRenderUnits(
-      [...history, assistantText(6, "a2 grows", { turnId: "turn-2" })],
-      {},
-      cache,
-    );
+    const second = buildConversationTurnRenderUnits([...history, grown], {}, cache);
 
     // 历史轮次的行引用未变，必须复用同一个 unit；只有流式轮次重建。
     expect(second[0]).toBe(first[0]);
     expect(second[1]).not.toBe(first[1]);
     expect(second[1]?.latestAssistantTextRow?.text).toBe("a2 grows");
 
+    // 向上补页会整体移动下标，但历史轮次的 materialize 结果不变，必须继续命中缓存。
+    const prepended = buildConversationTurnRenderUnits(
+      [
+        turnHeader(10, { turnId: "turn-0" }),
+        userInput(11, "older q", { turnId: "turn-0" }),
+        assistantText(12, "older a", { turnId: "turn-0" }),
+        ...history,
+        grown,
+      ],
+      {},
+      cache,
+    );
+    expect(prepended[1]).toBe(first[0]);
+    expect(prepended[2]).toBe(second[1]);
+
     // 会话阶段变化会影响折叠边界，缓存必须失效。
     const third = buildConversationTurnRenderUnits(
-      [...history, assistantText(6, "a2 grows", { turnId: "turn-2" })],
+      [...history, grown],
       { sessionPhase: "error" },
       cache,
     );

@@ -932,6 +932,26 @@ describe("ChatContextUsage", () => {
     expect(html).toContain("80%");
   });
 
+  it("renders estimated generation speed next to the context capacity", () => {
+    const html = renderToStaticMarkup(
+      createElement(ChatContextUsage, {
+        intl: {
+          formatMessage: (
+            { id }: { id: string },
+            values?: Record<string, unknown>,
+          ) => (values?.speed === undefined ? id : `${id}:${values.speed}`),
+        },
+        locale: "en-US",
+        selectedProvider: "glm",
+        taskUsage: { used: 17_000, size: 1_000_000 },
+        tokenSpeed: 42.36,
+      }),
+    );
+
+    expect(html).toContain("chat.contextUsage.generateSpeed");
+    expect(html).toContain("chat.contextUsage.generateSpeedValue:42.4");
+  });
+
   it("renders a low cache hit rate in the development environment", () => {
     const html = renderToStaticMarkup(
       createElement(ChatContextUsage, {

@@ -381,6 +381,8 @@ export interface V4ComposerToolbarProps {
   /** 当前 scope 的 Composer 选择；新任务与已有会话都只显示这份状态。 */
   draftConfig?: Partial<SessionConfigState>;
   usage: SessionUsageState | null;
+  /** 最近几秒的估算生成速度（tokens/s）；非运行态或无可估算数据时为 null。 */
+  tokenSpeed?: number | null;
   disabled: boolean;
   /** Highspeed 卡生效时固定本轮模型，禁止通过选择器或快捷键切换。 */
   modelLocked?: boolean;
@@ -430,6 +432,7 @@ function V4ComposerModelControlsImpl({
   draftMode = false,
   draftConfig,
   usage,
+  tokenSpeed = null,
   disabled,
   modelLocked = false,
   highspeedPresented = false,
@@ -1064,6 +1067,7 @@ function V4ComposerModelControlsImpl({
         <ChatContextUsage
           codingPlanUsageRemaining={codingPlanUsageRemaining}
           taskUsage={taskUsage}
+          tokenSpeed={tokenSpeed}
           startPlanBalance={contextStartPlanBalance}
           selectedProvider={displayProvider}
           intl={intl}

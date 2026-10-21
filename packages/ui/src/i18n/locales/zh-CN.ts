@@ -4730,6 +4730,8 @@ const zhCN: Record<string, string> = {
   "chat.contextUsage.title": "上下文容量",
   "chat.contextUsageDescription": "提示词、工具调用和回复都会共享上下文窗口。",
   "chat.contextUsage.cacheHitRate": "平均缓存命中率",
+  "chat.contextUsage.generateSpeed": "最近 3 秒生成速度",
+  "chat.contextUsage.generateSpeedValue": "≈ {speed} tok/s",
   "chat.contextUsage.breakdown": "上下文来源",
   "chat.contextUsage.breakdown.messages": "消息",
   "chat.contextUsage.breakdown.systemPrompt": "系统提示词",

@@ -1815,6 +1815,26 @@ function ConversationTimelineImpl({
   ]);
 
   useLayoutEffect(() => {
+    const element = scrollRef.current;
+    // 冷打开时首次贴底可能发生在内容高度仍为 0 的 layout 上，随后 rows 到达把内容撑开，
+    // 若宽度过渡/测高保护恰好挡住同一帧的吸底，就会停在最顶部。跟随态下只要真正离底，
+    // 就补一次贴底；用户上滚会先解除 following / 登记 awayFromBottom，不会被强行拉回。
+    if (!element || rowCount === 0) return;
+    if (!followingRef.current) return;
+    if (getActiveUserScrollIntent() === "awayFromBottom") return;
+    if (
+      isAtBottom({
+        scrollTop: element.scrollTop,
+        viewportHeight: element.clientHeight,
+        contentHeight: element.scrollHeight,
+      })
+    ) {
+      return;
+    }
+    scrollToBottom();
+  }, [getActiveUserScrollIntent, rowCount, scrollToBottom]);
+
+  useLayoutEffect(() => {
     if (scrollRef.current) {
       syncTurnNavigatorViewport(scrollRef.current);
     }

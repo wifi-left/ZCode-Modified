@@ -454,8 +454,7 @@ export function buildConversationTurnRenderUnits(
         rows: unit.orderedRows,
         ...buildTurnRenderUnitCacheKey({
           rows: unit.orderedRows,
-          index,
-          total: units.length,
+          isLastTurn: index === units.length - 1,
           isRunning: resolveTurnRunning(unit, options),
           nowMs: options.nowMs,
           sessionPhase: options.sessionPhase,

@@ -262,6 +262,7 @@ export function ChatContextUsage({
   codingPlanUsageRemaining,
   startPlanBalance,
   taskUsage,
+  tokenSpeed = null,
   selectedProvider: _selectedProvider,
   intl,
   locale,
@@ -274,6 +275,8 @@ export function ChatContextUsage({
     cache?: { hitRate: number | null };
     breakdown?: ZCodeContextUsageBreakdownItem[];
   } | null;
+  /** 最近几秒的估算生成速度；null = 未在生成或窗口内没有新增 token。 */
+  tokenSpeed?: number | null;
   selectedProvider: ZCodeProvider;
   intl: ReturnType<typeof useZCodeIntl>["intl"];
   locale: string;
@@ -881,6 +884,20 @@ export function ChatContextUsage({
       }),
     [locale],
   );
+  const tokenSpeedLabel = useMemo(() => {
+    if (tokenSpeed === null || !Number.isFinite(tokenSpeed) || tokenSpeed <= 0) {
+      return null;
+    }
+    return intl.formatMessage(
+      { id: "chat.contextUsage.generateSpeedValue" },
+      {
+        speed: new Intl.NumberFormat(locale, {
+          maximumFractionDigits: 1,
+          minimumFractionDigits: 1,
+        }).format(tokenSpeed),
+      },
+    );
+  }, [intl, locale, tokenSpeed]);
 
   if (
     (!renderableTaskUsage || !contextUsageLabel) &&
@@ -1004,6 +1021,19 @@ export function ChatContextUsage({
                 segments={progressSegments}
                 value={usagePercent * PERCENT_MAX}
               />
+              {tokenSpeedLabel ? (
+                <div
+                  className="flex items-center justify-between gap-3 text-ui-sm"
+                  data-testid="chat-context-usage-token-speed"
+                >
+                  <span className="text-foreground-subtle">
+                    {intl.formatMessage({ id: "chat.contextUsage.generateSpeed" })}
+                  </span>
+                  <span className="font-mono text-ui-sm tabular-nums text-foreground">
+                    {tokenSpeedLabel}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ) : null}
           {renderableTaskUsage &&

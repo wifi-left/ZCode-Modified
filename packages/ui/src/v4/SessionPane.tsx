@@ -409,6 +409,8 @@ export interface SessionPaneProps {
 }
 
 const MOBILE_PLAN_INTERACTION_RECONCILE_DELAY_MS = 500;
+/** 冷开时为首个不完整轮次自动补页的上限：单个巨型轮次不能无限向上翻。 */
+const MAX_AUTO_LOAD_INCOMPLETE_TURN_ATTEMPTS = 2;
 function createSessionErrorKey(
   sessionId: string | null | undefined,
   error: SessionErrorInfo,
@@ -1139,6 +1141,10 @@ export function SessionPane({
   const [assistantPreviewPptxAutoOpenTarget, setAssistantPreviewPptxAutoOpenTarget] =
     useState<AssistantPreviewPptxAutoOpenTarget | null>(null);
   const autoLoadIncompleteTurnCursorRef = useRef<string | null>(null);
+  const autoLoadIncompleteTurnBudgetRef = useRef<{ scopeKey: string; attempts: number }>({
+    scopeKey: "",
+    attempts: 0,
+  });
   snapshotRef.current = snapshot;
   sessionIdRef.current = sessionId;
   const handleAutoOpenAssistantPptx = useCallback(
@@ -4254,9 +4260,19 @@ export function SessionPane({
     }
     const firstRowId = snapshot?.rows.window[0]?.rowId;
     if (firstRowId === undefined) return;
-    const cursorKey = `${sessionId}:${state.subscriptionId ?? "connecting"}:${firstRowId}`;
+    const scopeKey = `${sessionId}:${state.subscriptionId ?? "connecting"}`;
+    if (autoLoadIncompleteTurnBudgetRef.current.scopeKey !== scopeKey) {
+      autoLoadIncompleteTurnBudgetRef.current = { scopeKey, attempts: 0 };
+    }
+    // 单个 turn 的 row 可能远超一页（长 agent 运行）；无上限时每次冷开都会连续补页，
+    // 既拖慢首屏又让视图在多次 prepend 中漂移。补到上限后交给用户滚动/显式加载。
+    if (autoLoadIncompleteTurnBudgetRef.current.attempts >= MAX_AUTO_LOAD_INCOMPLETE_TURN_ATTEMPTS) {
+      return;
+    }
+    const cursorKey = `${scopeKey}:${firstRowId}`;
     if (autoLoadIncompleteTurnCursorRef.current === cursorKey) return;
     autoLoadIncompleteTurnCursorRef.current = cursorKey;
+    autoLoadIncompleteTurnBudgetRef.current.attempts += 1;
 
     // snapshotTailWindowRows 按 row 截尾，可能把一个长 turn 的 header/user
     // 留在窗口外。旧 UI 只在 scroll 事件到达顶边时 loadOlder；内容不足一屏或 scrollTop

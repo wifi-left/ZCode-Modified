@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/components/lib/utils.js";
+import { useStreamingTokenSpeed } from "@/hooks/useStreamingTokenSpeed.js";
 import { HighspeedComposerBackground } from "@/highspeed/HighspeedActivationVisual.js";
 import { useHighspeedComposerEntrance } from "@/highspeed/useHighspeedComposerEntrance.js";
 import {
@@ -1978,6 +1979,11 @@ function ConversationComposerImpl({
   // 避免每个 token 批次都重建 Tooltip/Select 子树。
   const composerUsage = snapshot?.usage ?? null;
   const composerPhase = snapshot?.control.phase ?? null;
+  // usage 只在模型请求完成时更新；生成速度改由流式正文增长估算，按最近 3 秒滑动平均展示。
+  const composerTokenSpeed = useStreamingTokenSpeed(
+    snapshot?.rows.window,
+    composerPhase === "running" || composerPhase === "prewarming",
+  );
   const handleSelectModelTrace = useCallback(
     (nextProvider: string, nextModel: string, sourceModel: ModelSelectionSource | null) =>
       (() => onSelectModel(nextProvider, nextModel, sourceModel))(),
@@ -2001,6 +2007,7 @@ function ConversationComposerImpl({
             draftMode={draftMode}
             draftConfig={draftConfig}
             usage={composerUsage}
+            tokenSpeed={composerTokenSpeed}
             disabled={disabled}
             modelLocked={highspeedCard !== null}
             highspeedPresented={highspeedPresented}
@@ -2059,6 +2066,7 @@ function ConversationComposerImpl({
       activeConfigPicker,
       composerPhase,
       composerUsage,
+      composerTokenSpeed,
       disabled,
       draftConfig,
       draftMode,

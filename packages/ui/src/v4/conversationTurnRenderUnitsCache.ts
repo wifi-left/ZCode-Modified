@@ -48,8 +48,7 @@ export function sameRowReferences(
  */
 export function buildTurnRenderUnitCacheKey(input: {
   rows: readonly ConversationRow[];
-  index: number;
-  total: number;
+  isLastTurn: boolean;
   isRunning: boolean;
   nowMs?: number;
   sessionPhase?: SessionPhase;
@@ -62,9 +61,10 @@ export function buildTurnRenderUnitCacheKey(input: {
       row.display.ui !== undefined,
   );
   return {
+    // 只依赖“是否最后一轮”而不是绝对下标：向上补页会让所有轮次下标 +N，
+    // 但历史轮次的 materialize 结果不变，必须继续命中缓存，避免补页时全量重建。
     optionKey: [
-      input.index,
-      input.total,
+      input.isLastTurn ? "last" : "history",
       input.isRunning ? "running" : "idle",
       input.isRunning ? Math.trunc(input.nowMs ?? 0) : "",
       input.sessionPhase ?? "",
