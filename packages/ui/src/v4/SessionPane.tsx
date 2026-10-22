@@ -5408,8 +5408,6 @@ export function SessionPane({
                   canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
                   loadingOlder={timelineSnapshot ? state.loadingOlder : false}
                   onLoadOlder={handleLoadOlder}
-                  onLoadAllOlder={handleLoadAllOlder}
-                  turnNavigatorDirectoryRevision={state.turnNavigatorDirectoryRevision}
                   bottomDock={conversationBottomDock}
                   hideTurnNavigator={
                     shareActive && shareInSelectionStage && !compactForRemoteControl

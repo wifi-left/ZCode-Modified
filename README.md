@@ -1,19 +1,4 @@
-# ZCode
-
-<div align="center">
-  <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
-</div>
-<p align="center">
-  <a href="https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=47ag983c-8fcb-4d6d-814b-5395193a712c&amp;qr_code=true">飞书社群</a> ·
-  <a href="https://discord.gg/z9aBcQXZQ3">Discord</a>
-</p>
-<p align="center">
-  简体中文 | <a href="README.en.md">English</a>
-</p>
-
-
-
-ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent。本仓库包含客户端、后端服务、共享 UI，以及 Agent CLI 与运行时源码。
+# ZCode Modified Version (学习使用)
 
 ## 更新
 
@@ -47,7 +32,7 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
 - **上下文容量浮层显示实时生成速度**：在「上下文容量」面板中新增「最近 3 秒生成速度」（估算 tok/s，按流式正文/思考正文增长滑动平均）；协议没有逐 token 用量事件，因此用字符比例估算并在停顿约 3 秒后隐藏。
 - **队列 + 引导并存**：发送忙碌中的消息默认仍进入队列；队列面板在「立即」（停止当前轮并消费该条）旁边新增「引导」按钮，把该队列项作为 guide 注入当前运行轮后从队列移除。命令为 `steerQueuedItem`，失败时保留原队列项并释放 reservation。
 - **依赖安全升级**：Electron `41.10.7`（覆盖 41.1/41.2.2/41.7.2 起的上下文隔离与多项 CVE 修复）、MCP TypeScript SDK/client `2.3.1`、`ws 8.22.0`、`undici 6.29.1`、`smol-toml 1.9.1`、Node 基线 `24.22.1`；移除未使用的 `axios` 与 `electron-updater`，并通过 pnpm overrides 修复 axios/protobufjs/form-data/basic-ftp/ip-address、markdown 渲染链等传递依赖。`pnpm audit --prod` 由 2 critical / 74 high 降至 0 critical / 2 high（`node-forge` 无修复版本；`braces` 仅开发工具链）。
-- **内存与切换**：轮次渲染缓存改为有界（最多保留最近 1200 个轮次，更早的滚动回来时重建），行高缓存上限 4000；切换会话时立即清空上一会话的轮次缓存以释放 rows，keep-warm 投影仍避免重新拉取历史，返回时按需重建 unit。
+- **内存与切换**：轮次渲染缓存改为有界（最多保留最近 1200 个轮次，更早的滚动回来时重建），行高缓存上限 4000；切换会话时立即清空上一会话的轮次缓存以释放 rows，keep-warm 投影仍避免重新拉取历史，返回时按需重建 unit。首次打开长会话不再为问题导航自动加载全部历史——目录只覆盖已加载窗口，向上滚动时按游标逐步补齐，首屏只处理 60 行尾窗。
 
 ## 初始化
 
@@ -63,13 +48,13 @@ Agent CLI 与运行时源码位于 [apps/zcode-cli/](apps/zcode-cli/)，作为�
 
 根据需要选择其他初始化或构建入口：
 
-| 命令                           | 用途                                                              |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `pnpm install`                 | 安装依赖                                                          |
-| `pnpm prepare:desktop-runtime` | 准备桌面运行资源，默认包含远程资源准备                            |
-| `pnpm prepare:remote-assets`   | 单独准备远程运行资源                                              |
+| 命令                             | 用途                                   |
+| ------------------------------ | ------------------------------------ |
+| `pnpm install`                 | 安装依赖                                 |
+| `pnpm prepare:desktop-runtime` | 准备桌面运行资源，默认包含远程资源准备                  |
+| `pnpm prepare:remote-assets`   | 单独准备远程运行资源                           |
 | `pnpm bootstrap:with-remote`   | 初始化依赖、本地与远程资源，并串行构建相关包；跳过桌面应用 bundle |
-| `pnpm build`                   | 递归执行各 workspace 包的构建脚本，包括包内的资源准备步骤         |
+| `pnpm build`                   | 递归执行各 workspace 包的构建脚本，包括包内的资源准备步骤   |
 
 默认 `bootstrap` 跳过远程资源准备，适合本地桌面开发。使用远程工作区或验证远程发行资源时，再运行对应准备命令。
 
@@ -161,12 +146,12 @@ node apps/zcode-cli/packages/cli/dist/zcode.cjs --help
 
 根目录 [.env.example](.env.example) 提供服务地址与构建配置示例，可按需复制到 `.env`，本地覆盖放入 `.env.local`。Desktop 的开发环境通过 `dev:desktop:test` / `dev:desktop:prod` 选择。
 
-| 配置                                 | 用途                                             |
-| ------------------------------------ | ------------------------------------------------ |
-| `ZCODE_DATA_BASE_DIR`                | 应用数据基目录，数据写入其下的 `.zcode/`         |
-| `ZCODE_SERVER_WORKSPACE`             | Web 后端的工作区路径                             |
+| 配置                                   | 用途                            |
+| ------------------------------------ | ----------------------------- |
+| `ZCODE_DATA_BASE_DIR`                | 应用数据基目录，数据写入其下的 `.zcode/`     |
+| `ZCODE_SERVER_WORKSPACE`             | Web 后端的工作区路径                  |
 | `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` | 本地 Provider 配置文件路径；未设置时使用内置配置 |
-| `ZCODE_DIST_BASE_URL`                | 命令行安装脚本使用的下载根地址                   |
+| `ZCODE_DIST_BASE_URL`                | 命令行安装脚本使用的下载根地址               |
 
 运行时变量可在启动命令的环境中显式设置。随客户端发布的默认配置见 [config/README.md](config/README.md)。
 
@@ -277,18 +262,18 @@ powershell -ExecutionPolicy Bypass -File scripts\build-zcode-desktop-windows.ps1
 
 ## 仓库结构
 
-| 目录                                                 | 职责                                       |
-| ---------------------------------------------------- | ------------------------------------------ |
-| `packages/desktop`                                   | Electron Main、Host、Renderer 与桌面打包   |
-| `packages/web`                                       | Web 客户端                                 |
-| `packages/server`                                    | HTTP / WebSocket 服务与远程连接            |
-| `packages/zcode-server-cli`                          | 独立 Server 启动与进程管理                 |
-| `packages/ui`                                        | 共享 React 组件、hooks 与 Zustand 状态     |
-| `packages/services`                                  | 业务服务与持久化                           |
-| `packages/shared`、`packages/rpc`、`packages/client` | 共享协议和类型、RPC 框架、Agent 客户端 SDK |
-| `packages/provider`、`packages/provider-node`        | Provider 公共能力与 Node 实现              |
-| `apps/zcode-cli`                                     | Agent CLI、TUI、运行时与工具               |
-| `scripts`、`config`、`third-party`                   | 构建维护脚本、内置配置与第三方声明材料     |
+| 目录                                                 | 职责                                |
+| -------------------------------------------------- | --------------------------------- |
+| `packages/desktop`                                 | Electron Main、Host、Renderer 与桌面打包 |
+| `packages/web`                                     | Web 客户端                           |
+| `packages/server`                                  | HTTP / WebSocket 服务与远程连接          |
+| `packages/zcode-server-cli`                        | 独立 Server 启动与进程管理                 |
+| `packages/ui`                                      | 共享 React 组件、hooks 与 Zustand 状态    |
+| `packages/services`                                | 业务服务与持久化                          |
+| `packages/shared`、`packages/rpc`、`packages/client` | 共享协议和类型、RPC 框架、Agent 客户端 SDK      |
+| `packages/provider`、`packages/provider-node`       | Provider 公共能力与 Node 实现            |
+| `apps/zcode-cli`                                   | Agent CLI、TUI、运行时与工具              |
+| `scripts`、`config`、`third-party`                   | 构建维护脚本、内置配置与第三方声明材料               |
 
 ## 项目声明
 
