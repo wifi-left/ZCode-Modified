@@ -115,4 +115,13 @@ export function pruneTurnRenderUnitsCache(
   for (const turnId of cache.entries.keys()) {
     if (!seenTurnIds.has(turnId)) cache.entries.delete(turnId);
   }
+  // 用户向上翻很多页后，为所有轮次保留 unit 会让内存随历史线性增长；
+  // 只保留最近构建到的轮次（Map 插入序 ≈ 轮次序），更早的轮次滚动回来时重建。
+  while (cache.entries.size > MAX_TURN_RENDER_UNIT_CACHE_ENTRIES) {
+    const oldest = cache.entries.keys().next();
+    if (oldest.done) break;
+    cache.entries.delete(oldest.value);
+  }
 }
+
+export const MAX_TURN_RENDER_UNIT_CACHE_ENTRIES = 1_200;

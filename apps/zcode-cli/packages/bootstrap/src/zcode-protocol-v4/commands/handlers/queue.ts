@@ -22,7 +22,7 @@ import {
   V4GoalCompactRejectedError,
 } from "./goal-compact.js";
 import { resolveSessionFallbackModelSelection } from "../input-admission.js";
-import { preemptActiveTurnAndWait } from "./session-flow.js";
+import { preemptActiveTurnAndWait, sendText } from "./session-flow.js";
 import { V4CommandNoopError } from "../../v4-gateway.js";
 import { commandExecutionContextOf } from "../executor.js";
 export { V4SessionIdleTimeoutError } from "./session-flow.js";
@@ -56,6 +56,14 @@ export class V4QueueItemNotEditableError extends Error {
   constructor(queueItemId: string) {
     super(`v4 queue item is not editable: ${queueItemId}`);
     this.name = "V4QueueItemNotEditableError";
+  }
+}
+
+export class V4QueueItemNotSteerableError extends Error {
+  readonly reasonCode = "guard.queueItemNotSteerable";
+  constructor(queueItemId: string) {
+    super(`v4 queue item cannot be steered: ${queueItemId}`);
+    this.name = "V4QueueItemNotSteerableError";
   }
 }
 
@@ -341,6 +349,77 @@ async function sendQueuedNow(
   }
 }
 
+/**
+ * steerQueuedItem：把队列项作为 guide 注入当前运行轮，成功后删除原队列项。
+ * 先 reserve 防止并发 drain/发送重复；guide 发送失败时释放 reservation，原项留在队列。
+ * 复用 sendText 的完整 admission（模型/模式/附件/held 裁决），不另造一套注入路径。
+ */
+async function steerQueuedItem(
+  host: V4CommandCoreHost,
+  envelope: CommandEnvelope,
+): Promise<CommandResult | undefined> {
+  const payload = envelope.payload as CommandPayloadMap["steerQueuedItem"];
+  const record = requireRecord(host, envelope.sessionId);
+  const reservationId = envelope.commandId;
+  const traceOptions = { traceContext: record.traceContext };
+  const queueItem = host.getQueueItem?.(record.app.sessionId, payload.queueItemId) ?? null;
+  if (queueItem === null) throw new V4QueueItemTextUnavailableError(payload.queueItemId);
+  if (queueItem.kind === "compact") {
+    throw new V4QueueItemNotSteerableError(payload.queueItemId);
+  }
+  if (!(await record.app.reserveQueueItem(payload.queueItemId, reservationId, traceOptions))) {
+    throw new V4QueueItemReservedError(payload.queueItemId);
+  }
+  let admitted = false;
+  try {
+    const result = await sendText(host, {
+      ...envelope,
+      // 新输入必须使用新 commandId：原 sourceCommandId 已作为队列项被准入过。
+      commandId: `${envelope.commandId}:guide`,
+      payload: {
+        text: queueItem.text,
+        ...(queueItem.attachments.length > 0 ? { attachments: queueItem.attachments } : {}),
+        requestedDelivery: "guide",
+        ...(queueItem.modelSelection ? { modelSelection: queueItem.modelSelection } : {}),
+        ...(queueItem.mode ? { mode: queueItem.mode } : {}),
+        ...(queueItem.planEnabled !== undefined ? { planEnabled: queueItem.planEnabled } : {}),
+        ...(queueItem.sharedContextRefs
+          ? { context_refs: queueItem.sharedContextRefs }
+          : {}),
+        ...(queueItem.source ? { source: queueItem.source } : {}),
+        ...(queueItem.inputOrigin ? { inputOrigin: queueItem.inputOrigin } : {}),
+        ...(queueItem.conversationQuotes
+          ? { conversationQuotes: queueItem.conversationQuotes }
+          : {}),
+        ...(queueItem.toolDisallowlist
+          ? { toolDisallowlist: queueItem.toolDisallowlist }
+          : {}),
+      },
+    } as CommandEnvelope);
+    admitted = true;
+    const removed = await record.app.removeQueueItem(payload.queueItemId, {
+      reason: "user_removed",
+      reservationId,
+      ...traceOptions,
+    });
+    if (!removed) {
+      host.logger?.warn?.("v4 steerQueuedItem guide accepted but queue item already gone", {
+        queueItemId: payload.queueItemId,
+        sessionId: record.app.sessionId,
+      });
+    }
+    return result;
+  } finally {
+    if (!admitted) {
+      await record.app.releaseQueueItemReservation(
+        payload.queueItemId,
+        reservationId,
+        traceOptions,
+      );
+    }
+  }
+}
+
 export const queueHandlers = {
   deleteQueueItem,
   editQueueItem,
@@ -348,4 +427,5 @@ export const queueHandlers = {
   setAutoDrain,
   setFollowupMode,
   sendQueuedNow,
+  steerQueuedItem,
 };

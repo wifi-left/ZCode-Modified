@@ -1,3 +1,4 @@
+/* oxlint-disable eslint(max-lines) -- queue 面板的 DnD、暂停态与逐项操作集中维护，拆分会打散交互边界。 */
 import { BotChannelMessageContent } from "@/v4/ChannelMentionContent.js";
 import { parsePromptConversationSelections } from "@/lib/conversationSelectionReference.js";
 import { ConversationSelectionReferenceChip } from "@/v4/composer/ConversationSelectionReferenceChip.js";
@@ -20,12 +21,13 @@ import {
   TID_V4_QUEUE_ITEM_DELETE,
   TID_V4_QUEUE_ITEM_EDIT,
   TID_V4_QUEUE_ITEM_SEND_NOW,
+  TID_V4_QUEUE_ITEM_STEER,
   TID_V4_QUEUE_PAUSED_BANNER,
   TID_V4_QUEUE_RESUME,
   testId,
 } from "@zcode/shared";
 import type { QueueState } from "@zcode/shared/zcode-protocol-v4";
-import { ArrowUpFromLine, GripVertical, PencilIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpFromLine, CornerDownRight, GripVertical, PencilIcon, Trash2Icon } from "lucide-react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
@@ -42,6 +44,8 @@ export interface ConversationQueuePanelProps {
   pendingEditQueueItemId?: string | null;
   /** 立即发送队列项（sendQueuedNow command，stop 当前 + 消费该项）。 */
   onSendNow?: (queueItemId: string) => void;
+  /** 把队列项作为 guide 注入当前运行轮（steerQueuedItem command）。 */
+  onSteerItem?: (queueItemId: string) => void;
   /** 拖拽排序项（reorderQueueItem，移动到锚点前；null=队尾）。 */
   onMoveItem?: (queueItemId: string, beforeQueueItemId: string | null) => void;
   /** 暂停队列恢复：CLI setAutoDrain(true)，idle 立即消费、busy 仅武装。 */
@@ -122,6 +126,7 @@ interface QueueRowProps {
   onEditItem?: (queueItemId: string) => Promise<void> | void;
   editPending: boolean;
   onSendNow?: (queueItemId: string) => void;
+  onSteerItem?: (queueItemId: string) => void;
 }
 
 const QueueRow = memo(function QueueRow({
@@ -132,6 +137,7 @@ const QueueRow = memo(function QueueRow({
   onDeleteItem,
   onEditItem,
   onSendNow,
+  onSteerItem,
   editPending,
 }: QueueRowProps) {
   const dispatchLocked = item.dispatch.state !== "queued";
@@ -258,6 +264,21 @@ const QueueRow = memo(function QueueRow({
           {intl.formatMessage({ id: isCompact ? "chat.queue.runNow" : "chat.queue.sendNow" })}
         </Button>
       ) : null}
+      {onSteerItem && !isCompact && item.kind !== "compact" ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="default"
+          data-icon="inline-start"
+          data-testid={testId(TID_V4_QUEUE_ITEM_STEER, item.queueItemId)}
+          data-queue-item-id={item.queueItemId}
+          disabled={rowLocked || item.dispatch.state !== "queued"}
+          onClick={() => onSteerItem(item.queueItemId)}
+        >
+          <CornerDownRight className="size-3.5" />
+          {intl.formatMessage({ id: "chat.queue.guideNow" })}
+        </Button>
+      ) : null}
       {onEditItem && !isCompact ? (
         <ControlHintTooltip title={intl.formatMessage({ id: "chat.queue.edit" })}>
           <Button
@@ -304,6 +325,7 @@ function ConversationQueuePanelImpl({
   onEditItem,
   pendingEditQueueItemId = null,
   onSendNow,
+  onSteerItem,
   onMoveItem,
   onResume,
 }: ConversationQueuePanelProps) {
@@ -400,6 +422,7 @@ function ConversationQueuePanelImpl({
                 onDeleteItem={onDeleteItem}
                 onEditItem={onEditItem}
                 onSendNow={onSendNow}
+                onSteerItem={onSteerItem}
                 editPending={pendingEditQueueItemId === item.queueItemId}
               />
             ))}

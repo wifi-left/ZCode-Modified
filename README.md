@@ -17,6 +17,7 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
 
 ## 更新
 
+- 2026-10-22：依赖安全升级、队列项单条“引导”、启动/长会话/内存优化。
 - 2026-10-21：长会话性能优化、对话存档可勾选清理、Bot 失败/会话失效自动恢复。
 - 2026-10-10：更新至 ZCode v3.15.1 版本。
 - 2026-9-23：更新至 ZCode v3.14.3 版本。
@@ -44,10 +45,13 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
   - 协议 `row.delta`/`row.upserted` 的 rowId→index 查找由每帧 O(N) 改为跨 window 副本复用索引表；Highspeed footer 在没有 Highspeed 卡时跳过整段扫描。
   - 历史消息仍按窗加载：首屏尾窗 60 行、虚拟列表只挂载可视轮次，向上滚动接近顶部时自动预取更早行。
 - **上下文容量浮层显示实时生成速度**：在「上下文容量」面板中新增「最近 3 秒生成速度」（估算 tok/s，按流式正文/思考正文增长滑动平均）；协议没有逐 token 用量事件，因此用字符比例估算并在停顿约 3 秒后隐藏。
+- **队列 + 引导并存**：发送忙碌中的消息默认仍进入队列；队列面板在「立即」（停止当前轮并消费该条）旁边新增「引导」按钮，把该队列项作为 guide 注入当前运行轮后从队列移除。命令为 `steerQueuedItem`，失败时保留原队列项并释放 reservation。
+- **依赖安全升级**：Electron `41.10.7`（覆盖 41.1/41.2.2/41.7.2 起的上下文隔离与多项 CVE 修复）、MCP TypeScript SDK/client `2.3.1`、`ws 8.22.0`、`undici 6.29.1`、`smol-toml 1.9.1`、Node 基线 `24.22.1`；移除未使用的 `axios` 与 `electron-updater`，并通过 pnpm overrides 修复 axios/protobufjs/form-data/basic-ftp/ip-address、markdown 渲染链等传递依赖。`pnpm audit --prod` 由 2 critical / 74 high 降至 0 critical / 2 high（`node-forge` 无修复版本；`braces` 仅开发工具链）。
+- **内存与切换**：轮次渲染缓存改为有界（最多保留最近 1200 个轮次，更早的滚动回来时重建），行高缓存上限 4000；切换会话时立即清空上一会话的轮次缓存以释放 rows，keep-warm 投影仍避免重新拉取历史，返回时按需重建 unit。
 
 ## 初始化
 
-准备 Git、Node.js **24.14.0** 和 pnpm **10.33.2**，版本以 [mise.toml](mise.toml) 为准。以下开发和打包命令均在仓库根目录执行。
+准备 Git、Node.js **24.22.1** 和 pnpm **10.33.2**，版本以 [mise.toml](mise.toml) 为准。以下开发和打包命令均在仓库根目录执行。
 
 ```bash
 pnpm bootstrap

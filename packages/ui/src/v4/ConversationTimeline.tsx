@@ -453,6 +453,12 @@ function ConversationTimelineImpl({
   if (renderUnitCacheRef.current === null) {
     renderUnitCacheRef.current = createConversationTurnRenderUnitsCache();
   }
+  // 会话切换先清空轮次缓存再构建，避免上一会话的 rows 被 unit 继续持有。
+  const renderUnitCacheSessionKeyRef = useRef<string | null | undefined>(undefined);
+  if (renderUnitCacheSessionKeyRef.current !== scrollMemoryKey) {
+    renderUnitCacheSessionKeyRef.current = scrollMemoryKey;
+    renderUnitCacheRef.current.entries.clear();
+  }
   const renderUnits = useMemo(
     () =>
       withTopicPreparationMessages(

@@ -15,7 +15,7 @@
     "lint": "oxlint src --no-ignore"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "@zcode/contracts": "workspace:*",
     "@zcode/core": "workspace:*",
     "@zcode/node-repl-host": "workspace:*",

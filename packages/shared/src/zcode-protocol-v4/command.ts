@@ -207,6 +207,8 @@ export const commandPayloadSchemas = {
     })
     .superRefine(requireModelSelectionForExecution),
   editQueueItem: z.object({ queueItemId: z.string(), newText: z.string() }),
+  // 把队列项作为 guide 注入当前运行轮，成功后从队列移除；不走 stop/promotion。
+  steerQueuedItem: z.object({ queueItemId: z.string() }),
   // beforeQueueItemId = null → 移到队尾。
   reorderQueueItem: z.object({
     queueItemId: z.string(),
@@ -315,6 +317,7 @@ export const COMMANDS_REQUIRING_BASE_REVISION: ReadonlySet<CommandType> = new Se
   "retryTurn",
   "setAssistantFeedback",
   "sendQueuedNow",
+  "steerQueuedItem",
   "editQueueItem",
   "reorderQueueItem",
   "deleteQueueItem",

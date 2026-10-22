@@ -1832,6 +1832,83 @@ describe("v4 原生 stop", () => {
   });
 });
 
+describe("steerQueuedItem", () => {
+  it("steerQueuedItem 以 guide 注入并把原队列项移除", async () => {
+    const reserveQueueItem = vi.fn(async () => true);
+    const removeQueueItem = vi.fn(async () => true);
+    const releaseQueueItemReservation = vi.fn(async () => true);
+    const app = makeApp({ reserveQueueItem, removeQueueItem, releaseQueueItemReservation });
+    const record = makeRecord({ app });
+    const queueItem = {
+      kind: "sendText",
+      queueItemId: "q1",
+      sourceCommandId: "cmd-origin",
+      clientId: "client-origin",
+      text: "hello guide",
+      attachments: [],
+      delivery: { requested: "queue", admitted: "queue", fallbackReasonCode: null },
+      order: { position: 0 },
+      steer: { state: "notRequested" },
+      dispatch: { state: "queued" },
+      admittedAt: 1,
+    };
+    const host = makeHost(record, { getQueueItem: () => queueItem as never });
+
+    await new V4CommandExecutor(host).execute(
+      envelope("steerQueuedItem", { queueItemId: "q1" }),
+    );
+
+    expect(app.sendInput).toHaveBeenCalledTimes(1);
+    const [, options] = app.sendInput.mock.calls[0] as [
+      unknown,
+      { intent: { requestedDelivery: string } },
+    ];
+    expect(options.intent.requestedDelivery).toBe("guide");
+    expect(reserveQueueItem).toHaveBeenCalledWith("q1", "cmd-1", expect.anything());
+    expect(removeQueueItem).toHaveBeenCalledWith(
+      "q1",
+      expect.objectContaining({ reason: "user_removed", reservationId: "cmd-1" }),
+    );
+    expect(app.releaseQueueItemReservation).not.toHaveBeenCalled();
+  });
+
+  it("steerQueuedItem 发送失败时释放 reservation，保留原队列项", async () => {
+    const reserveQueueItem = vi.fn(async () => true);
+    const removeQueueItem = vi.fn(async () => true);
+    const releaseQueueItemReservation = vi.fn(async () => true);
+    const app = makeApp({
+      reserveQueueItem,
+      removeQueueItem,
+      releaseQueueItemReservation,
+      sendInput: vi.fn(async () => {
+        throw new Error("admission failed");
+      }),
+    });
+    const record = makeRecord({ app });
+    const queueItem = {
+      kind: "sendText",
+      queueItemId: "q1",
+      sourceCommandId: "cmd-origin",
+      clientId: "client-origin",
+      text: "hello guide",
+      attachments: [],
+      delivery: { requested: "queue", admitted: "queue" },
+      order: { position: 0 },
+      steer: { state: "notRequested" },
+      dispatch: { state: "queued" },
+      admittedAt: 1,
+    };
+    const host = makeHost(record, { getQueueItem: () => queueItem as never });
+
+    await expect(
+      new V4CommandExecutor(host).execute(envelope("steerQueuedItem", { queueItemId: "q1" })),
+    ).rejects.toThrow("admission failed");
+
+    expect(app.removeQueueItem).not.toHaveBeenCalled();
+    expect(releaseQueueItemReservation).toHaveBeenCalledWith("q1", "cmd-1", expect.anything());
+  });
+});
+
 describe("supports 分流", () => {
   it("协议命令全部原生（回落面清零）；未知命令不 supports", () => {
     const executor = new V4CommandExecutor(makeHost(makeRecord()));
@@ -1849,6 +1926,7 @@ describe("supports 分流", () => {
       "setAssistantFeedback",
       "setHighspeedMetrics",
       "sendQueuedNow",
+      "steerQueuedItem",
       "editQueueItem",
       "reorderQueueItem",
       "deleteQueueItem",

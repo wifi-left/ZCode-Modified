@@ -43,7 +43,7 @@ export class V4SessionIdleTimeoutError extends Error {
  * sendText：只做协议/held/model/附件校验，start/queue 交给同一 session 的 Core admission。
  * held（choice）时仍按 heldQueueDisposition 裁决。
  */
-async function sendText(
+export async function sendText(
   host: V4CommandCoreHost,
   envelope: CommandEnvelope,
 ): Promise<CommandResult | undefined> {

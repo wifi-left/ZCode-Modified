@@ -156,6 +156,8 @@ export const sessionActionAvailabilitySchema = z.object({
   setFollowupMode: actionAvailabilitySchema,
   queueEdit: actionAvailabilitySchema,
   sendQueuedNow: actionAvailabilitySchema,
+  // additive：旧 CLI 不返回该项时 UI 只隐藏“引导”入口。
+  steerQueuedItem: actionAvailabilitySchema.optional(),
   pauseGoal: actionAvailabilitySchema,
   resumeGoal: actionAvailabilitySchema,
 });

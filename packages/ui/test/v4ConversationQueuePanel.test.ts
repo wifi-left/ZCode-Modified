@@ -60,6 +60,7 @@ function renderPanel(): string {
         onDeleteItem: vi.fn(),
         onEditItem: vi.fn(),
         onSendNow: vi.fn(),
+        onSteerItem: vi.fn(),
         onMoveItem: vi.fn(),
       }),
     ),
@@ -91,8 +92,25 @@ describe("ConversationQueuePanel", () => {
     expect(html).toContain('data-v4-queue-drag-handle="true"');
     expect(html).toContain("backdrop-blur-md");
     expect(html).toContain(">立即<");
+    expect(html).toContain(">引导<");
+    expect(html).toContain('data-testid="v4-queue-item-steer-q-1"');
     expect(html).not.toContain(">立即发送<");
     expect(html).not.toContain(">上移<");
+  });
+
+  it("hides the guide action when the runtime does not advertise it", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        ZCodeIntlProvider,
+        { initialLocale: "zh-CN" },
+        createElement(ConversationQueuePanel, {
+          queue: queueState(),
+          onSendNow: vi.fn(),
+        }),
+      ),
+    );
+    expect(html).not.toContain(">引导<");
+    expect(html).not.toContain("v4-queue-item-steer");
   });
 
   it("renders stop-specific paused banner and resume action", () => {

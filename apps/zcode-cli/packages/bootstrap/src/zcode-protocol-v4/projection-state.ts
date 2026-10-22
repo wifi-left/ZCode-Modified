@@ -140,6 +140,11 @@ export function computeAvailability(context: AvailabilityContext): SessionAction
       : running
         ? ALLOWED
         : denied("sendQueuedNowRequiresRunning"),
+    steerQueuedItem: compacting
+      ? denied("compactOperationLock")
+      : running
+        ? ALLOWED
+        : denied("steerQueuedItemRequiresRunning"),
     // 独立 pauseGoal 改变 target 产品态；verifier/notSatisfied 期间底层 target 仍是 active，
     // 因此也允许暂停，不能要求当前一定存在 provider abort controller。
     pauseGoal:

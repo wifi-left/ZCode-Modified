@@ -4698,6 +4698,7 @@ const zhCN: Record<string, string> = {
   "chat.queue.title": "待发送消息（{count}）",
   "chat.queue.drag": "拖拽排序",
   "chat.queue.sendNow": "立即",
+  "chat.queue.guideNow": "引导",
   // compact 队列项曾单独显示“立即执行”，与同一队列中的即时动作文案不一致。
   "chat.queue.runNow": "立即",
   "chat.queue.edit": "编辑",

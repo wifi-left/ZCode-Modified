@@ -3840,6 +3840,24 @@ export function SessionPane({
     ],
   );
 
+  const handleSteerQueuedItem = useCallback(
+    (queueItemId: string) => {
+      const latest = snapshotRef.current;
+      if (!sessionId || !latest) return;
+      if (latest.availability.steerQueuedItem?.allowed !== true) return;
+      void dispatchCommand("steerQueuedItem", { queueItemId }, sessionId, latest.revision).then(
+        (ack) => {
+          if (ack.status !== "accepted" && ack.status !== "noop") {
+            logger.warn(
+              `[v4-pane] steerQueuedItem 被拒绝: ${ack.status} ${ack.reasonCode ?? ""}`,
+            );
+          }
+        },
+      );
+    },
+    [dispatchCommand, sessionId],
+  );
+
   const handleReorderQueueItem = useCallback(
     (queueItemId: string, beforeQueueItemId: string | null) => {
       const current = snapshotRef.current;
@@ -5111,6 +5129,11 @@ export function SessionPane({
             queueEditActiveForCurrentComposer ? queueEditOperation.queueItemId : null
           }
           onSendNow={handleSendQueuedNow}
+          onSteerItem={
+            snapshot.availability.steerQueuedItem?.allowed === true
+              ? handleSteerQueuedItem
+              : undefined
+          }
           onMoveItem={handleReorderQueueItem}
           onResume={handleResumeQueue}
         />
